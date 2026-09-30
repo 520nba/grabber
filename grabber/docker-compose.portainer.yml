@@ -19,7 +19,14 @@ services:
     container_name: grabber
     restart: unless-stopped
     ports:
-      # 左边是 NAS 上的端口，冲突就改成 "18765:8765"
+      # 左边是 NAS 上的端口，冲突就改成 "18765:8765"。
+      #
+      # ⚠️ 安全提示：本服务**没有鉴权**，这里绑的是所有网卡 —— 局域网内任何设备
+      # 都能解析下载，也能读到「下载到 NAS 落盘」和 `GET /api/config`（明文 Cookie，
+      # 仅回给同源浏览器请求）。这是为了让同一 Wi-Fi 下的手机能直连，属于**有意取舍**。
+      # 若你只通过 Cloudflare 隧道访问，改成 "127.0.0.1:8765:8765" 更安全
+      # （cloudflared 与 grabber 在同一 compose 网络里，用 http://grabber:8765 直连，
+      #  不需要发布端口）。
       - "8765:8765"
     volumes:
       # 用命名卷而不是宿主目录：Portainer Stack 的相对路径解析规则容易踩坑，

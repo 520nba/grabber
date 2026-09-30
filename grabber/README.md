@@ -431,10 +431,66 @@ sudo docker compose down                 # 停掉
 - **Cookie 保活**：`COOKIE_KEEPALIVE_HOURS`（默认 6 小时，设 0 关闭），两份 compose 里都已设。
   若 `curl_cffi` 在 NAS 架构上没装上，解析仍可用，但「自动接住滚动 Cookie」会失效
   （那条能力依赖 curl_cffi 能拿到响应 Cookie）。
+- **出站节流**（按主机名，同一主机两次请求之间至少间隔）：抖音系默认 `2.0s`、
+  小红书默认 `1.5s`、其它默认 `0.8s`，另加 0~0.4s 抖动。可用环境变量调整力度：
+
+  | 环境变量 | 默认 | 说明 |
+  |---|---|---|
+  | `GRABBER_GAP_DOUYIN` | `2.0` | 抖音 / iesdouyin 的间隔（秒） |
+  | `GRABBER_GAP_XHS` | `1.5` | 小红书的间隔（秒） |
+  | `GRABBER_GAP_DEFAULT` | `0.8` | 其它主机的间隔（秒），设 `0` 近乎关闭 |
+  | `GRABBER_GAP_JITTER` | `0.4` | 抖动上限（秒） |
+
+  调大更不容易触发风控，但**连续解析多个链接会变慢**（每个链接后要等一个间隔）。
+  节流是按主机分别计时的，所以解析抖音不会拖慢小红书。
+- **图片画质判定按「实测像素」而不是「猜档位名」**：以前靠识别
+  `~tplv-dy-shrink:` 这个字符串判断哪档是缩略图，抖音**换个变体名就失效**，
+  而且失效时会静默选到低清。现在改为：当同一张图有多个不同档位时，
+  只取前若干字节读图片头（Range 请求，不下载整张图）量出真实宽高，
+  挑第一个达到接口声明尺寸的档；命名怎么变都不影响判定。
+
+  | 环境变量 | 默认 | 说明 |
+  |---|---|---|
+  | `GRABBER_PROBE_IMAGE_SIZE` | `1` | 设 `0` 关闭实测探测，退回按命名猜 |
+  | `GRABBER_PROBE_BYTES` | `65536` | 每次探测取的字节数（够读到图片头即可） |
+
+  只有「同一张图出现多种档位」时才探测——常见的单档位形态（同一档的
+  webp/jpeg 编码）**不发探测请求**，因此不影响正常解析速度。
+  探测失败（CDN 拒 Range、签名过期、超时）会安全回退到原有行为，不会让解析失败。
+- **请求指纹（TLS impersonate）自动适配**：`curl_cffi` 会**给指纹改名**
+  （例如 `safari17_0_ios` 在 0.16.x 里已改成 `safari18_0_ios`），写死名字会导致
+  每个请求都抛 `ImpersonateError` 并**静默降级到系统 curl**。
+  现在代码里只写语义标记（`"ios"` / `"chrome"`），启动后首次使用时按候选表实测
+  哪个可用并缓存；探测靶子是一个不可达的本地地址，**不依赖外网**。
+  `GET /api/diagnostics` 的 `impersonate.resolved` 能看到当前实际选中的指纹，
+  解析响应里的 `via` 也会带上它（形如 `curl_cffi(safari18_0_ios)`）。
+- **抖音视频走移动分享页**（`m.douyin.com/share/video/<id>`）：它会在 SSR 里内嵌
+  完整作品数据（`loaderData["video_(id)/page"]["videoInfoRes"]["item_list"]`），
+  **不需要 `a_bogus` 签名**。注意 `www.iesdouyin.com` 的同名路径现在只返回客户端
+  渲染的壳（`video_layout: null`、无 `item_list`），所以两者都会试。
+  分享页只给带水印的 `/aweme/v1/playwm/` 档，代码会把它换成 `/aweme/v1/play/`
+  并把 `ratio` 提到 `1080p`——**实测同样不需要签名**，返回的是真实 MP4。
+  该路径拿不到 detail 接口那种按码率分档的信息，所以解析结果里会带
+  `from_share: true`（表示「已知不是最高码率档的精确信息」）。
+- **抖音调试端点**：`GET /api/debug/douyin?aweme_id=<id>`（或 `?link=<短链>`）
+  返回一次 detail 请求的**原始响应摘要**（HTTP 状态、`status_code`、字段结构、
+  Cookie **键名**列表），用于区分「风控 / Cookie 失效 / 解析分支」三类失败。
+  不返回任何 Cookie 值。
+- **落盘不覆盖**：下载到 NAS 时若同名文件已存在，会在序号后插入 `a/b/c…`
+  （如 `标题01.jpeg` → `标题01a.jpeg`），**不会覆盖**之前存过的素材。
+- **图片代理上限**：`/api/img` 默认拒绝超过 30MB 的响应（可用
+  `GRABBER_MAX_IMAGE_BYTES` 调整，单位字节）。抖音/小红书的高清原图通常 1~3MB。
+- **TLS 校验**：默认关闭（部分 CDN 证书链不完整）。设 `GRABBER_VERIFY_TLS=1` 可恢复校验。
+- **排查出网问题**：`GET /api/diagnostics` 返回各通道可用性（curl_cffi / curl / httpx）、
+  当前节流参数、ttwid 注册失败原因、以及最近的降级记录。解析失败时先看它，
+  能看到数据是走哪条通道拿到的、中间降级了几次——不用再抓包。
+  解析接口在**发生过降级**时会额外返回 `fetch_diagnostics` 字段。
 - **手机扫码登录**：需要镜像里装了浏览器（构建时 `INSTALL_BROWSER=1`）。没装时该入口会自动隐藏/报错，
   这时只能在本机浏览器上手工复制 Cookie 填进设置里。
-- **安全**：本服务**没有鉴权**，任何拿到域名的人都能用它解析、下载，`POST /api/config` 还能改
-  `download_dir`（服务端任意路径落盘）。**`GET /api/config` 对「同源浏览器请求」会回传明文 Cookie**
+- **安全**：本服务**没有鉴权**，任何拿到域名的人都能用它解析、下载。
+  下载落盘目录**只能**由环境变量 / `config.json` 配置，`POST /api/config` 不再接受
+  `download_dir`（避免把落盘位置交给任何能访问本服务的人）。
+  **`GET /api/config` 对「同源浏览器请求」会回传明文 Cookie**
   （用 `Sec-Fetch-Site` 做门槛，脚本 / 跨站拿不到），但这条门槛不是真鉴权。
   若挂公网，**强烈建议**在 Cloudflare 上加 Access 策略（邮箱验证），或至少用一个别人猜不到的
   路径前缀；也可把端口只绑内网：`"127.0.0.1:8765:8765"`。

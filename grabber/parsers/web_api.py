@@ -16,7 +16,16 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 from .abogus import ABogus
-from .base import douyin_image_pick, douyin_video_candidates, fetch, get_douyin_cookie
+from .base import (
+    _dy_variant_name,
+    douyin_image_candidates,
+    douyin_image_pick,
+    douyin_video_candidates,
+    fetch,
+    get_douyin_cookie,
+    measure_image_size,
+    verify_best_image,
+)
 
 # 该算法内置的 UA 指纹对应这条 Chrome 桌面 UA；实测与签名解耦，配对容错较好。
 UA = (
@@ -63,10 +72,18 @@ def _gen_mstoken(length: int = 148) -> str:
 _TTWID: str = ""
 _TTWID_AT: float = 0.0
 _TTWID_TTL: float = 6 * 3600.0
+# 上一次注册失败的原因（供 /api/diagnostics 显示）。原来是静默 pass，
+# 于是「ttwid 拿不到」这件事在线上完全不可见。
+_TTWID_LAST_ERROR: str = ""
+
+
+def ttwid_last_error() -> str:
+    return _TTWID_LAST_ERROR
 
 
 def _register_ttwid() -> str:
-    """向官方注册接口要一个 ttwid（失败返回空串）。"""
+    """向官方注册接口要一个 ttwid（失败返回空串，并记下原因）。"""
+    global _TTWID_LAST_ERROR
     try:
         import httpx
 
@@ -89,9 +106,11 @@ def _register_ttwid() -> str:
         )
         for c in r.headers.get_list("set-cookie"):
             if "ttwid=" in c:
+                _TTWID_LAST_ERROR = ""
                 return c.split("ttwid=", 1)[1].split(";", 1)[0]
-    except Exception:
-        pass
+        _TTWID_LAST_ERROR = f"HTTP {r.status_code}，但响应里没有 ttwid"
+    except Exception as e:
+        _TTWID_LAST_ERROR = f"{type(e).__name__}: {e}"
     return ""
 
 
@@ -117,8 +136,58 @@ def sign_detail(aweme_id: str) -> str:
     return _DETAIL_URL + "?" + query + "&a_bogus=" + quote(a_bogus, safe="")
 
 
-def _extract_items(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """从 detail 接口的 JSON 里抠出视频/图文列表和元信息。"""
+async def _pick_image_verified(
+    img: dict[str, Any], idx: int = 0
+) -> tuple[str | None, str, str | None]:
+    """选一张图，返回 (URL, 说明, 备用URL)。
+
+    先用同步规则给出**有序候选**，再在「候选里存在多个不同变换段」时**实测**分辨
+    率，挑第一个达到声明尺寸的。这样即使抖音换了缩略档的命名（原来只认
+    ``~tplv-dy-shrink:``），也不会静默选到低清——判据从「猜名字」变成「量像素」。
+
+    只有当候选里确实有多个不同处理段时才探测：单一处理段（常见情况）没有可比较
+    的对象，探测只会白白多一次请求。
+    """
+    quick_best, quick_alt = douyin_image_pick(img)
+    cands = douyin_image_candidates(img)
+    if not cands:
+        return quick_best, "", quick_alt
+
+    # 用**变体名**而不是整个变换段去重：同一档的 webp/jpeg 编码不算不同画质，
+    # 否则正常路径也会误触发探测（白白多几次网络往返）。
+    transforms = {_dy_variant_name(u) for u in cands}
+    declared = (img.get("width") or 0, img.get("height") or 0)
+    if len(transforms) <= 1 or not declared[0]:
+        # 没有可比较的多样性，或没有声明尺寸可对照：保持原有同步行为
+        return quick_best or cands[0], "", quick_alt
+
+    # 同档只探一次：把候选压缩成「每档取一个代表」
+    seen_tr: set[str] = set()
+    probes: list[str] = []
+    for u in cands:
+        key = _dy_variant_name(u)
+        if key in seen_tr:
+            continue
+        seen_tr.add(key)
+        probes.append(u)
+        if len(probes) >= 3:
+            break
+
+    measured: dict[str, tuple[int, int] | None] = {}
+    for u in probes:
+        measured[u] = await measure_image_size(u)
+
+    picked, note = verify_best_image(probes, declared, measured)
+    if not picked:
+        return quick_best or cands[0], note, quick_alt
+    # 备用档：优先同档位、不同主机（选了哪个档就跟哪个档）
+    picked_key = _dy_variant_name(picked)
+    alt = next((u for u in cands if u != picked and _dy_variant_name(u) == picked_key), None) or quick_alt
+    return picked, note, alt
+
+
+async def extract_items(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """从 detail 接口的 JSON 里抠出视频/图文列表和元信息（图片走实测校验）。"""
     detail = payload.get("aweme_detail") or payload.get("data", {}).get("aweme_detail")
     if not detail:
         return [], {}
@@ -128,33 +197,44 @@ def _extract_items(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[
         "author": ((detail.get("author") or {}).get("nickname")) or "",
     }
 
-    # 图文
+    # 图文（收集起来，但先不 return —— 下面要判断是否还带真视频）
     images = detail.get("images")
+    image_items: list[dict[str, Any]] = []
     if isinstance(images, list) and images:
-        items = []
-        for img in images:
-            best, alt = douyin_image_pick(img)
-            if not best:
+        for idx, img in enumerate(images):
+            picked, note, alt = await _pick_image_verified(img, idx)
+            if not picked:
                 continue
-            items.append(
-                {
-                    "kind": "image",
-                    "url": best,
-                    "fallback": alt,
-                    "preview": best,
-                    "tier": "original",
-                    "badge": "高清原图",
-                    "width": img.get("width"),
-                    "height": img.get("height"),
-                }
-            )
-        if items:
-            return items, meta
+            item = {
+                "kind": "image",
+                "url": picked,
+                "fallback": alt,
+                "preview": picked,
+                "tier": "original",
+                "badge": "高清原图",
+                "width": img.get("width"),
+                "height": img.get("height"),
+            }
+            if note:
+                item["pick_note"] = note
+            image_items.append(item)
 
     # 视频：按「分辨率 → 码率」取最高清档（play_addr / play_addr_h264 /
     # play_addr_265 / bit_rate[].play_addr 统一收拢排序）
     video = detail.get("video") or {}
+    # 图文作品（aweme_type=68）的 video 字段是占位：duration=0、play_addr 是
+    # 720×720 方图、实际指向 content-type: audio/mp4 的背景音。
+    # douyin_video_candidates() 已能撇掉这类占位；这里在「图文且没有真视频」时
+    # 记一笔说明，让上层能给用户一句人话，而不是让人以为链接坏了。
+    is_image_post = detail.get("aweme_type") == 68
     candidates = douyin_video_candidates(video)
+    if not candidates and is_image_post and image_items:
+        meta["no_video_note"] = (
+            "该作品是图文（不是视频），只能取图；"
+            "抖音为图文生成的那条 background audio 不是视频，已忽略。"
+        )
+    if not candidates and image_items:
+        return image_items, meta
     if candidates:
         top = candidates[0]
         cover_obj = video.get("cover") or video.get("origin_cover") or {}
@@ -226,7 +306,7 @@ async def _attempt(aweme_id: str, ttwid: str) -> dict[str, Any] | None:
     if payload.get("status_code") not in (0, None):
         return None
 
-    items, meta = _extract_items(payload)
+    items, meta = await extract_items(payload)
     if not items:
         return None
 

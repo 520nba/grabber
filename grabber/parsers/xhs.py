@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlparse
 from .base import (
     UA_DESKTOP,
     UA_IOS,
+    XHS_HOSTS,
     absorb_cookies,
     clean_text,
     extract_json_block,
@@ -41,8 +42,15 @@ async def _expand(url: str) -> tuple[str, str | None]:
     if note_id:
         return url, token
 
-    # 短链需要跟随跳转
-    resp = await fetch(url, headers={"User-Agent": UA_IOS}, impersonate="safari17_0_ios")
+    # 短链需要跟随跳转。这里显式传白名单：本函数会把**用户粘贴的 URL**拿去出网，
+    # 是 SSRF 的入口之一（另一个是 douyin._resolve）。allow_hosts 会在请求前与
+    # 跟随重定向后各校验一次主机名。
+    resp = await fetch(
+        url,
+        headers={"User-Agent": UA_IOS},
+        impersonate="ios",
+        allow_hosts=XHS_HOSTS,
+    )
     candidates = SHORT_LINK_RE.findall(resp.text) + XHS_URL_RE.findall(resp.text)
     for cand in candidates:
         nid = _pick_note_id(cand)
