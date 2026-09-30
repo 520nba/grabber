@@ -1,0 +1,68 @@
+# ─────────────────────────────────────────────────────────────────────
+# Portainer 专用（Stack → Web editor 直接粘贴）
+#
+# 为什么不能用主 docker-compose.yml：
+#   Portainer 的 Stack「Web editor」方式没有构建上下文，`build: .` 会直接报错。
+#   所以这份 compose **只用已构建好的镜像**（image:），不含 build。
+#
+# 使用顺序：
+#   第 1 步：先构建镜像（二选一）
+#     A) Portainer → Images → Build a new image → Upload → 上传项目 tar.gz
+#        → 镜像名填 grabber:latest
+#     B) 或者用本仓库根目录的 docker-compose.yml（含 build），
+#        在 NAS 上用 `docker compose up -d --build` 构建
+#   第 2 步：回到本文件 → Stack → Web editor → 粘贴 → Deploy the stack
+# ─────────────────────────────────────────────────────────────────────
+services:
+  grabber:
+    image: grabber:latest
+    container_name: grabber
+    restart: unless-stopped
+    ports:
+      # 左边是 NAS 上的端口，冲突就改成 "18765:8765"
+      - "8765:8765"
+    volumes:
+      # 用命名卷而不是宿主目录：Portainer Stack 的相对路径解析规则容易踩坑，
+      # 命名卷在各平台都稳。配置写在卷里的 /app/data/config.json。
+      - grabber-data:/app/data
+      # 下载落盘目录：把 NAS 上的 ComfyUI 素材目录挂进容器（用绝对路径的 bind mount，
+      # 这样能指向已存在的宿主目录；Portainer 只对「相对路径」敏感，绝对路径没问题）。
+      # 右侧（容器侧）路径 = 下面 GRABBER_DOWNLOAD_DIR 的值，两边必须一致。
+      # 若你的 NAS 布局不同，把左侧宿主路径改成实际目录即可（右侧保持 /volume1/disk10/comfyui素材）。
+      - /volume1/disk10/comfyui素材:/volume1/disk10/comfyui素材
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=8765
+      # 配置读写路径，指向上面挂出来的持久化目录
+      - GRABBER_CONFIG=/app/data/config.json
+      # Cookie 保活间隔（小时）。设 0 关闭保活。
+      - COOKIE_KEEPALIVE_HOURS=6
+      # 下载落盘目录（勾选图片/视频 → 下载到 NAS 用）。必须等于上面卷挂载的「容器侧」路径。
+      - GRABBER_DOWNLOAD_DIR=/volume1/disk10/comfyui素材
+      # 需要走代理时填
+      # - PROXY=http://192.168.2.x:7890
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8765/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ───────────────────────────────────────────────────────────────
+  # 可选：Cloudflare 命名隧道（固定域名，重启不变）
+  # 1) Cloudflare Zero Trust → Networks → Tunnels 新建隧道
+  # 2) Public hostname 的 Service 填 http://grabber:8765
+  # 3) 复制 Token，在 Portainer 的 Stack「环境变量」里加
+  #    CF_TUNNEL_TOKEN=eyJh...
+  # 4) 取消下面注释后重新部署
+  # ───────────────────────────────────────────────────────────────
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   container_name: grabber-tunnel
+  #   restart: unless-stopped
+  #   command: tunnel --no-autoupdate run --token ${CF_TUNNEL_TOKEN}
+  #   depends_on:
+  #     - grabber
+
+volumes:
+  grabber-data:

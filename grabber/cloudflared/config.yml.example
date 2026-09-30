@@ -1,0 +1,16 @@
+# 命名隧道配置模板
+
+把 `<TUNNEL_ID>` 换成 `cloudflared tunnel create grabber` 输出的 UUID，
+`credentials-file` 换成你本机实际的 json 路径，然后另存为 `config.yml`。
+
+```yaml
+url: http://127.0.0.1:8765
+tunnel: <TUNNEL_ID>
+credentials-file: C:\Users\DT\.cloudflared\<TUNNEL_ID>.json
+```
+
+启动：
+
+```
+cloudflared tunnel run grabber
+```

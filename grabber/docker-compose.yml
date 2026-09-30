@@ -1,0 +1,51 @@
+# 群晖 Container Manager → 项目(Project)：把整个 grabber 目录传上去，本文件直接可用。
+# 数据目录 ./data 会自动创建；Cookie / 代理等配置存在里面，重建容器不会丢。
+services:
+  grabber:
+    build: .
+    image: grabber:latest
+    container_name: grabber
+    restart: unless-stopped
+    ports:
+      # 左边是群晖上的端口，和别的服务冲突就改成 "18765:8765"
+      - "8765:8765"
+    volumes:
+      # 配置持久化目录（挂目录而不是挂单个文件，宿主文件缺失时不会变成目录）
+      - ./data:/app/data
+      # 下载落盘目录：把 NAS 上的 ComfyUI 素材目录挂进容器。
+      # 右侧（容器侧）路径 = 下面 GRABBER_DOWNLOAD_DIR 的值，两边必须一致。
+      # 若你的 NAS 布局不同，把左侧宿主路径改成实际目录即可（右侧保持 /volume1/disk10/comfyui素材）。
+      - /volume1/disk10/comfyui素材:/volume1/disk10/comfyui素材
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=8765
+      # 配置读写路径，指向上面挂出来的持久化目录
+      - GRABBER_CONFIG=/app/data/config.json
+      # Cookie 保活间隔（小时）。设 0 关闭保活。
+      - COOKIE_KEEPALIVE_HOURS=6
+      # 下载落盘目录（勾选图片/视频 → 下载到 NAS 用）。必须等于上面卷挂载的「容器侧」路径。
+      - GRABBER_DOWNLOAD_DIR=/volume1/disk10/comfyui素材
+      # 需要走代理时填，例如 NAS 上已有的 http://192.168.1.2:7890
+      # - PROXY=
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8765/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ─────────────────────────────────────────────────────────────
+  # 可选：Cloudflare 命名隧道（固定域名，重启不变；推荐替代随机的 trycloudflare）
+  # 用法：
+  #   1) Cloudflare Zero Trust → Networks → Tunnels 新建隧道，
+  #      Public hostname 指向  http://grabber:8765
+  #   2) 复制隧道 Token，写进同目录 .env 文件：CF_TUNNEL_TOKEN=eyJh...
+  #   3) 取消下面注释后 `docker compose up -d`
+  # ─────────────────────────────────────────────────────────────
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   container_name: grabber-tunnel
+  #   restart: unless-stopped
+  #   command: tunnel --no-autoupdate run --token ${CF_TUNNEL_TOKEN}
+  #   depends_on:
+  #     - grabber

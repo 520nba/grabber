@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f6f7f9">
+<title>素材抓取</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --line:#e8eaee; --text:#1c1f23; --sub:#8a9099;
+    --brand:#ff3b5c; --brand-soft:#fff0f3; --ok:#1a9c5b; --shadow:0 1px 2px rgba(16,20,28,.04),0 6px 20px rgba(16,20,28,.06);
+    --radius:14px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;
+    padding:0 14px calc(28px + env(safe-area-inset-bottom));}
+  header{padding:calc(18px + env(safe-area-inset-top)) 2px 12px}
+  h1{margin:0;font-size:19px;font-weight:600;letter-spacing:.2px}
+  header p{margin:4px 0 0;color:var(--sub);font-size:12.5px}
+
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:12px;margin-bottom:14px}
+  textarea{width:100%;min-height:78px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+    font:14px/1.5 inherit;resize:none;background:#fbfbfc;color:var(--text);outline:none}
+  textarea:focus{border-color:var(--brand);background:#fff}
+  .row{display:flex;gap:8px;margin-top:10px}
+  button,.btn{flex:1;border:0;border-radius:10px;padding:11px 12px;font-size:15px;font-weight:600;
+    background:var(--brand);color:#fff;text-align:center;text-decoration:none;cursor:pointer}
+  button:active{opacity:.85}
+  .ghost{background:#f1f2f4;color:var(--text);font-weight:500}
+  .ghost:active{background:#e6e8eb}
+
+  .hist{display:flex;gap:8px;overflow-x:auto;padding-top:10px;-webkit-overflow-scrolling:touch}
+  .hist span{flex:0 0 auto;background:#f1f2f4;border-radius:999px;padding:5px 12px;font-size:12.5px;color:var(--sub);white-space:nowrap}
+
+  .meta-bar{display:flex;align-items:center;gap:8px;margin:0 2px 10px;font-size:12.5px;color:var(--sub)}
+  .tag{background:var(--brand-soft);color:var(--brand);border-radius:6px;padding:2px 8px;font-weight:600}
+  .title{font-size:15px;font-weight:600;margin:0 2px 4px;line-height:1.4}
+  .author{margin:0 2px 12px;color:var(--sub);font-size:12.5px}
+
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  .cell{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);position:relative}
+  .cell img{width:100%;display:block;background:#f0f1f3}
+  .cell .dim{position:absolute;left:8px;bottom:8px;background:rgba(20,22,26,.55);color:#fff;
+    font-size:11px;padding:2px 7px;border-radius:6px;backdrop-filter:blur(4px)}
+  .cell .badge{position:absolute;right:8px;top:8px;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:6px}
+  .badge.ori{background:rgba(26,156,91,.92);color:#fff}
+  .badge.def{background:rgba(20,22,26,.5);color:#fff;backdrop-filter:blur(4px)}
+  .cell video{width:100%;display:block;background:#000}
+  .cell .pad{padding:10px}
+  .cell .pad a{display:block;width:100%;background:var(--brand);color:#fff;text-align:center;
+    border-radius:9px;padding:9px;font-size:14px;font-weight:600;text-decoration:none}
+  .cell.wide{grid-column:1 / -1}
+
+  .hint{background:#fff;border:1px dashed var(--line);border-radius:var(--radius);padding:11px 13px;
+    color:var(--sub);font-size:12.5px;line-height:1.6;margin:14px 0 0}
+  .hint b{color:var(--text)}
+  .err{background:#fff4f5;border:1px solid #ffd7dd;color:#c02a44;border-radius:var(--radius);
+    padding:11px 13px;font-size:13.5px;margin-bottom:12px}
+  .warn{background:#fff8e8;border:1px solid #f3e2bd;color:#8a6412;border-radius:var(--radius);
+    padding:10px 13px;font-size:12.5px;margin-bottom:12px}
+  .empty{text-align:center;color:var(--sub);font-size:13px;padding:26px 0}
+  .spinner{margin:18px auto;width:22px;height:22px;border:2.5px solid #e6e8eb;border-top-color:var(--brand);
+    border-radius:50%;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .viewer{position:fixed;inset:0;background:rgba(12,14,18,.94);display:none;z-index:50;
+    align-items:center;justify-content:center;padding:16px}
+  .viewer.on{display:flex}
+  .viewer img{max-width:100%;max-height:100%;border-radius:8px}
+  .viewer .close{position:absolute;top:calc(14px + env(safe-area-inset-top));right:16px;color:#fff;font-size:15px;
+    background:rgba(255,255,255,.14);border-radius:999px;padding:6px 14px}
+  .toolbar{display:flex;gap:8px;margin-top:14px}
+  .toolbar button{background:#f1f2f4;color:var(--text);font-weight:500;font-size:13.5px;padding:10px}
+
+  /* 勾选下载到 NAS */
+  .cell .pick{position:absolute;left:8px;top:8px;z-index:3;display:flex;align-items:center;gap:4px;
+    background:rgba(20,22,26,.5);backdrop-filter:blur(4px);border-radius:6px;padding:3px 7px 3px 4px;
+    color:#fff;font-size:11px;cursor:pointer;user-select:none}
+  .cell .pick input{width:16px;height:16px;margin:0;accent-color:var(--brand)}
+  .cell .pick.on{background:var(--brand)}
+  .dl-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:14px}
+  .dl-bar label.chk{display:flex;align-items:center;gap:5px;font-size:13px;color:var(--sub);cursor:pointer}
+  .dl-bar label.chk input{width:16px;height:16px;accent-color:var(--brand)}
+  .dl-bar input.sub{flex:1 1 160px;min-width:120px;border:1px solid var(--line);border-radius:9px;
+    padding:9px 11px;font-size:13.5px;background:#fff;color:var(--text)}
+  .dl-bar button.go{background:var(--brand);color:#fff;font-weight:600;font-size:14px;padding:10px 16px;
+    border-radius:9px;border:none;cursor:pointer}
+  .dl-bar button.go:disabled{opacity:.55;cursor:default}
+  .dl-bar .stat{flex-basis:100%;font-size:12.5px;color:var(--sub);line-height:1.5}
+  .dl-bar .stat b{color:var(--brand)}
+  .dl-bar .stat .fail{color:#c02a44}
+</style>
+</head>
+<body>
+<header>
+  <h1>素材抓取</h1>
+  <p>粘贴小红书 / 抖音分享链接，取原图与无水印视频</p>
+</header>
+
+<details class="panel" id="settings">
+  <summary style="cursor:pointer;font-weight:600;font-size:14px;list-style:none;display:flex;align-items:center;gap:8px">
+    <span>⚙️ 登录态 Cookie</span>
+    <span id="cfgDot" style="font-size:12px;color:var(--sub)">检测中…</span>
+  </summary>
+  <p style="color:var(--sub);font-size:12.5px;margin:10px 0 8px;line-height:1.6">
+    <b style="color:var(--text)">两个平台都支持免登录直连</b>，不填也能用；填了更稳、画质更高。
+    抖音走 a_bogus + 官方 ttwid 免登录取数；小红书图片靠「干净对象键 + 图片 CDN」重建，
+    <b style="color:var(--text)">免登录即可拿到真原图</b>（如 3024×4032）。<br>
+    <b style="color:var(--text)">小红书 Cookie 主要影响视频画质</b>：未登录只下发 720p 一档，
+    填了才可能取到 1080p（网页端上限；更高的「原画」只在 App 内提供）。<br>
+    填一次就行——服务会自动接住平台滚动下发的新 Cookie 并定时保活，只有被登出时才需重填。
+    Cookie 只存在你本机，不上传任何服务器。怎么拿见下方折叠说明。
+  </p>
+  <p style="color:var(--sub);font-size:12px;margin:0 0 8px;line-height:1.6">
+    两个框相互独立：打开时会自动预填当前已保存的值，<b style="color:var(--text)">只改其中一个、另一个保持原样即可</b>，
+    不会互相清空；某框留空则表示「不修改该项」。要清空请用下面的「清空」按钮。
+  </p>
+  <label style="font-size:12.5px;color:var(--sub)">抖音 Cookie<small style="color:var(--sub)">（留空 = 不修改）</small></label>
+  <textarea id="ckDouyin" placeholder="粘贴从抖音网页版复制的完整 Cookie 整行" style="margin-top:6px"></textarea>
+  <label style="font-size:12.5px;color:var(--sub);display:block;margin-top:10px">小红书 Cookie<small style="color:var(--sub)">（留空 = 不修改）</small></label>
+  <textarea id="ckXhs" placeholder="粘贴从小红书网页版复制的完整 Cookie 整行" style="margin-top:6px"></textarea>
+  <div class="row">
+    <button class="ghost" id="ckClear">清空</button>
+    <button class="ghost" id="ckCheck">立即校验</button>
+    <button id="ckSave">保存并生效</button>
+  </div>
+  <div id="ckMsg" style="font-size:12.5px;margin-top:8px;color:var(--sub)"></div>
+  <div id="ckState" style="font-size:12.5px;margin-top:6px;line-height:1.7;color:var(--sub)"></div>
+
+  <div id="qrBox" style="display:none;margin-top:12px">
+    <div id="qrMsg" style="font-size:12.5px;color:var(--sub);margin-bottom:8px"></div>
+    <img id="qrImg" alt="登录二维码" style="width:186px;height:186px;display:none;border:1px solid var(--line);border-radius:10px;background:#fff">
+    <div id="qrTip" style="font-size:12px;color:var(--sub);margin-top:8px;line-height:1.65;display:none">
+      用<b>手机小红书 App</b>扫码并确认。Cookie 直接保存在<b>本服务所在的机器</b>上，
+      不经过你的电脑，也不用再手工复制。
+    </div>
+  </div>
+  <div class="row">
+    <button class="ghost" id="qrStart">手机扫码登录</button>
+  </div>
+  <details style="margin-top:10px">
+    <summary style="font-size:12.5px;color:var(--brand);cursor:pointer">怎么复制 Cookie？（点开）</summary>
+    <div style="font-size:12px;color:var(--sub);line-height:1.7;margin-top:8px">
+      1. 电脑 Chrome 打开并<b>登录</b> douyin.com（抖音）或 xiaohongshu.com（小红书）。<br>
+      2. 按 <b>F12</b> 打开开发者工具 → <b>Network（网络）</b>标签。<br>
+      3. 刷新页面，点任意一个请求 → 右侧 <b>Headers</b> → 找到 <b>Request Headers</b> 里的 <b>Cookie</b>。<br>
+      4. 整行选中复制，粘到上面的框里，点「保存并生效」。<br>
+      5. 填一次就够：服务会自己接住平台滚动下发的新 Cookie，并定时保活。<br>
+      只有被平台登出 / 触发风控时才需要重填，上面的状态行会提前告诉你。
+    </div>
+  </details>
+</details>
+
+<div class="panel">
+  <textarea id="input" placeholder="在此粘贴作品链接或整段分享文案…" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+  <div class="row">
+    <button class="ghost" id="paste">粘贴</button>
+    <button id="go">解析</button>
+  </div>
+  <div class="hist" id="hist"></div>
+</div>
+
+<div id="out"></div>
+
+<div class="viewer" id="viewer"><span class="close" id="vclose">关闭</span><img id="vimg" alt=""></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = (path) => path;
+const enc = encodeURIComponent;
+
+function renderEmpty(){
+  $("#out").innerHTML = '<div class="empty">还没有解析记录。粘贴一条链接试试。</div>';
+}
+renderEmpty();
+
+/* 历史链接 */
+function loadHist(){
+  const list = JSON.parse(localStorage.getItem("hist") || "[]");
+  const box = $("#hist");
+  box.innerHTML = "";
+  list.slice(0, 8).forEach(u => {
+    const el = document.createElement("span");
+    el.textContent = u.length > 26 ? u.slice(0, 26) + "…" : u;
+    el.onclick = () => { $("#input").value = u; parse(u); };
+    box.appendChild(el);
+  });
+}
+function pushHist(u){
+  let list = JSON.parse(localStorage.getItem("hist") || "[]");
+  list = [u].concat(list.filter(x => x !== u)).slice(0, 12);
+  localStorage.setItem("hist", JSON.stringify(list));
+  loadHist();
+}
+loadHist();
+
+/* Cookie 设置 */
+async function refreshCfg(){
+  try{
+    const r = await fetch("/api/config"); const d = await r.json();
+    const dz = d.douyin && d.douyin.set, xz = d.xhs && d.xhs.set;
+    let s = "抖音:" + (dz ? "已填(" + d.douyin.len + "字符)" : "未填") +
+            " · 小红书:" + (xz ? "已填" : "未填");
+    $("#cfgDot").textContent = s;
+  }catch(e){ $("#cfgDot").textContent = "状态未知"; }
+  refreshCookieState();
+}
+
+/* 预填两个 Cookie 框：明文只对同源浏览器请求下发（见后端 /api/config）。
+   目的：打开页面就把「当前已保存的值」铺进两个框，这样只改其中一个再保存时，
+   另一个保持原样，不会被空框连带清掉。force=true 时强制覆盖（如扫码登录成功后）。 */
+async function fillCookieBoxes(force){
+  try{
+    const d = await (await fetch("/api/config")).json();
+    const xb = $("#ckXhs"), db = $("#ckDouyin");
+    if(typeof d.xhs_cookie === "string" && (force || !xb.value)) xb.value = d.xhs_cookie;
+    if(typeof d.douyin_cookie === "string" && (force || !db.value)) db.value = d.douyin_cookie;
+  }catch(e){}
+}
+
+/* Cookie 健康状态：有效 / 已失效 / 待校验 + 自动续期情况 */
+async function refreshCookieState(){
+  const box = $("#ckState");
+  if(!box) return;
+  try{
+    const r = await fetch("/api/cookie/status"); const d = await r.json();
+    const bits = [];
+    if(d.ok === true){
+      bits.push('<span style="color:#0a8f4d">● 登录态有效</span>' + (d.user_id ? "（ID " + esc(d.user_id) + "）" : ""));
+    }else if(d.ok === false){
+      bits.push('<span style="color:#d33">● 登录态已失效，需要重新获取 Cookie</span>');
+    }else if(!d.xhs_has_cookie){
+      bits.push('<span style="color:var(--sub)">● 未填小红书 Cookie（图片免登录可用；视频网页端最高 1080p）</span>');
+    }else{
+      bits.push('<span style="color:var(--sub)">● 待校验</span>');
+    }
+    if(d.checked_ago) bits.push("上次校验：" + esc(d.checked_ago));
+    const rn = d.renew || {};
+    if(rn.times){
+      let t = "已自动续期 " + rn.times + " 次";
+      if(rn.last_ago) t += "（最近 " + esc(rn.last_ago) + "）";
+      if(rn.keys && rn.keys.length) t += "：" + esc(rn.keys.slice(0, 6).join("、"));
+      bits.push(t);
+    }
+    if(d.keepalive_hours > 0) bits.push("保活间隔 " + d.keepalive_hours + " 小时");
+    box.innerHTML = bits.join("　·　");
+  }catch(e){ box.textContent = ""; }
+}
+$("#ckCheck").onclick = async () => {
+  $("#ckCheck").disabled = true;
+  $("#ckMsg").textContent = "正在校验…";
+  try{
+    const r = await fetch("/api/cookie/check", { method:"POST" });
+    const d = await r.json();
+    $("#ckMsg").textContent = (d.ok === true ? "✅ " : d.ok === false ? "❌ " : "ℹ️ ") + (d.message || "");
+    refreshCookieState(); refreshCfg();
+  }catch(e){ $("#ckMsg").textContent = "❌ 校验失败：" + e.message; }
+  finally{ $("#ckCheck").disabled = false; }
+};
+$("#ckSave").onclick = async () => {
+  // 只提交「确实填了内容」的框：空框代表「不修改该项」，这样只改一个平台时
+  // 不会把另一个平台的 Cookie 一并清掉（后端也按同样语义处理）。
+  const dv = $("#ckDouyin").value.trim(), xv = $("#ckXhs").value.trim();
+  const body = {};
+  if(dv) body.douyin_cookie = dv;
+  if(xv) body.xhs_cookie = xv;
+  if(!dv && !xv){ $("#ckMsg").textContent = "两个框都空，先粘贴 Cookie 再保存（要清除请用「清空」按钮）。"; return; }
+  $("#ckMsg").textContent = "保存中…（顺带校验一次登录态）";
+  try{
+    const r = await fetch("/api/config", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || "保存失败");
+    const cs = d.cookie_status;
+    let msg = "✅ 已保存并即时生效。";
+    if(cs && cs.ok === true) msg += " 登录态验证通过" + (cs.user_id ? "（ID " + cs.user_id + "）" : "") + "。";
+    else if(cs && cs.ok === false) msg += " ⚠️ 但这个 Cookie 平台不认：" + cs.message;
+    else if(cs) msg += " " + cs.message;
+    $("#ckMsg").textContent = msg;
+    refreshCfg();
+  }catch(e){ $("#ckMsg").textContent = "❌ " + e.message; }
+};
+$("#ckClear").onclick = async () => {
+  // 空串现在表示「不修改」，所以清空要走显式的 clear 标志，否则后端会当成 no-op。
+  $("#ckDouyin").value = ""; $("#ckXhs").value = "";
+  try{
+    await fetch("/api/config", { method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ clear: ["xhs","douyin"] }) });
+    $("#ckMsg").textContent = "已清空。"; refreshCfg();
+  }catch(e){ $("#ckMsg").textContent = "清空失败：" + e.message; }
+};
+
+/* 扫码登录：在服务所在机器上跑真实浏览器完成登录，Cookie 直接落在那边 */
+let qrTimer = null;
+const QR_BUSY = { starting:1, waiting:1 };
+
+function qrStopPoll(){ if(qrTimer){ clearInterval(qrTimer); qrTimer = null; } }
+
+function qrPaint(d){
+  const btn = $("#qrStart"), box = $("#qrBox"), img = $("#qrImg"), tip = $("#qrTip");
+  const st = d.status || "idle";
+  if(st === "unavailable" || d.available === false){
+    box.style.display = "none";
+    btn.disabled = true;
+    $("#ckMsg").textContent = "ℹ️ " + (d.unavailable_reason || d.message || "当前部署未启用浏览器登录");
+    return;
+  }
+  btn.disabled = false;
+  const busy = !!QR_BUSY[st];
+  btn.textContent = st === "waiting" ? "取消登录" : st === "starting" ? "启动中…" : "手机扫码登录";
+  btn.disabled = st === "starting";
+  box.style.display = busy ? "block" : "none";
+  if(busy && d.qr){
+    img.src = d.qr; img.style.display = "block"; tip.style.display = "block";
+  }else{
+    img.style.display = "none"; tip.style.display = "none";
+  }
+  if(busy){
+    let m = d.message || "请用小红书 App 扫码并确认";
+    if(st === "waiting" && typeof d.remaining === "number") m += "（剩 " + d.remaining + " 秒）";
+    $("#qrMsg").textContent = m;
+  }
+  if(st === "ok"){
+    $("#ckMsg").textContent = "✅ " + (d.message || "登录成功") + (d.user_hint ? "　" + d.user_hint : "");
+    // 扫码登录的 Cookie 落在服务端，这里回填进输入框，方便查看/微调（不再需要手工粘贴）。
+    fillCookieBoxes(true);
+    refreshCfg();
+  }else if(st === "timeout" || st === "cancelled" || st === "error"){
+    $("#ckMsg").textContent = (st === "error" ? "❌ " : "ℹ️ ") + (d.message || "");
+    if(st === "error" && d.debug){
+      const el = document.createElement("div");
+      el.style.cssText = "font-size:11.5px;color:var(--sub);margin-top:4px;word-break:break-all";
+      el.textContent = "诊断：" + d.debug;
+      $("#ckMsg").appendChild(el);
+    }
+  }
+  if(!busy) qrStopPoll();
+}
+
+async function qrPollOnce(){
+  try{
+    const d = await (await fetch("/api/login/status")).json();
+    qrPaint(d);
+    if(QR_BUSY[d.status] && !qrTimer) qrTimer = setInterval(async () => {
+      try{ qrPaint(await (await fetch("/api/login/status")).json()); }catch(e){}
+    }, 2000);
+    if(!QR_BUSY[d.status]) qrStopPoll();
+  }catch(e){}
+}
+
+$("#qrStart").onclick = async () => {
+  const label = $("#qrStart").textContent;
+  try{
+    if(label.indexOf("取消") >= 0){
+      qrStopPoll();
+      qrPaint(await (await fetch("/api/login/cancel", { method:"POST" })).json());
+      return;
+    }
+    qrPaint({ status:"starting", message:"正在启动浏览器…" });
+    const d = await (await fetch("/api/login/start", { method:"POST" })).json();
+    if(!d.ok){ qrPaint({ status: d.status === "unavailable" ? "unavailable" : "error",
+                         message: d.error, unavailable_reason: d.error }); return; }
+    qrPollOnce();
+  }catch(e){ qrPaint({ status:"error", message: e.message }); }
+};
+
+/* 打开面板时同步一次扫码登录的可用性，并把已保存的 Cookie 预填进两个输入框 */
+qrPollOnce();
+refreshCfg();
+fillCookieBoxes();
+
+/* 粘贴 */
+$("#paste").onclick = async () => {
+  try{
+    const t = await navigator.clipboard.readText();
+    if(t){ $("#input").value = t.trim(); }
+  }catch(e){
+    alert("读取剪贴板失败，请手动长按输入框粘贴。");
+  }
+};
+$("#go").onclick = () => parse($("#input").value.trim());
+$("#input").addEventListener("keydown", e => {
+  if(e.key === "Enter" && (e.metaKey || e.ctrlKey)) parse($("#input").value.trim());
+});
+
+/* 解析 */
+async function parse(text){
+  if(!text){ alert("请先粘贴链接"); return; }
+  // 防御性解码：有些浏览器/快捷指令会把整段分享文案编码后塞进 path，
+  // 前端 IIFE 没兜住时，这里再做一次 decodeURIComponent，避免后端抽不到链接。
+  try{ if(/%[0-9A-Fa-f]{2}/.test(text)) text = decodeURIComponent(text); }catch(e){}
+  $("#out").innerHTML = '<div class="spinner"></div><div class="empty">正在解析…</div>';
+  try{
+    // 不要再把输入框里的 Cookie 随解析请求一起发。输入框现在会预填「已保存」的值，
+    // 而服务端「请求级覆盖」的优先级高于「配置 + 运行时自动续期的合并值」——
+    // 一旦把预填值当覆盖发过去，就会绕过后台刚接住的滚动 Cookie（acw_tc 等），
+    // 反而更容易触发风控。Cookie 统一走「保存并生效」入口。
+    const res = await fetch(api("/api/parse"), {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ url: text })
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error || "解析失败");
+    pushHist(data.source_url || text);
+    render(data);
+  }catch(e){
+    $("#out").innerHTML = '<div class="err">' + esc(e.message) + '</div>' + footNote();
+  }
+}
+
+function esc(s){ return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+function safeName(s){
+  s = String(s || "作品").replace(/[\/\\:*?"<>|\n\r\t]/g, "").trim();
+  // 按「码点」截断，避免把 emoji 的代理对切成半个字符（会让 encodeURIComponent 抛 URI malformed）
+  const t = Array.from(s).slice(0, 24).join("").trim();
+  return t || "作品";
+}
+
+function render(d){
+  const isVideo = d.type === "video";
+  const name = safeName(d.title) + ".mp4";
+  let html = "";
+
+  if(d.warnings && d.warnings.length){
+    html += '<div class="warn">' + d.warnings.map(esc).join("<br>") + '</div>';
+  }
+
+  html += '<div class="meta-bar"><span class="tag">' +
+          (d.platform === "xhs" ? "小红书" : "抖音") + '</span><span>' +
+          (isVideo ? "视频" : "图文") + ' · 共 ' + d.items.length + ' 项</span></div>';
+  if(d.title) html += '<div class="title">' + esc(d.title) + '</div>';
+  if(d.author) html += '<div class="author">@' + esc(d.author) + '</div>';
+
+  html += '<div class="grid">';
+    d.items.forEach(it => {
+    const pick = '<label class="pick"><input type="checkbox" class="pick-cb" data-url="' + enc(it.url) +
+                 '" data-kind="' + esc(it.kind) + '"><span>选</span></label>';
+    if(it.kind === "image"){
+      const src = "/api/img?u=" + enc(it.url);
+      const dim = (it.width && it.height) ? '<span class="dim">' + it.width + '×' + it.height + '</span>' : "";
+      const ori = it.tier === "original";
+      const badgeText = it.badge || (ori ? "原图" : "默认档");
+      const badge = '<span class="badge ' + (ori ? "ori" : "def") + '">' + esc(badgeText) + '</span>';
+      const fb = it.fallback ? (' data-fallback="' + enc(it.fallback) + '"') : "";
+      html += '<div class="cell">' + badge + pick + '<img src="' + src + '"' + fb + ' loading="lazy" data-full="' + src + '" alt="">' + dim + '</div>';
+    }else{
+      const src = "/api/video?u=" + enc(it.url) + "&name=" + enc(name);
+      const poster = it.cover ? ('poster="/api/img?u=' + enc(it.cover) + '"') : "";
+      const backups = (it.backup && it.backup.length) ? (' data-backup="' + enc(JSON.stringify(it.backup)) + '"') : "";
+      html += '<div class="cell wide">' + pick + '<video ' + poster + ' src="' + src + '"' + backups + ' data-name="' + esc(name) + '" controls playsinline preload="metadata"></video>' +
+              '<div class="pad"><a href="' + src + '&dl=1">下载到「文件」App</a></div></div>';
+    }
+  });
+  html += '</div>';
+
+  // 勾选 + 下载到 NAS 本地目录
+  html += '<div class="dl-bar">' +
+    '<label class="chk"><input type="checkbox" id="pickAll"> 全选</label>' +
+    '<input class="sub" id="subdir" placeholder="标题前缀(可选，用于文件名)" value="">' +
+    '<button class="go" id="dlNas">下载选中到 NAS</button>' +
+    '<span class="stat" id="dlStat"></span>' +
+    '</div>';
+
+  if(!isVideo){
+    html += '<div class="toolbar"><button id="copyall">复制全部图片链接</button></div>';
+  }
+  html += footNote(isVideo);
+  $("#out").innerHTML = html;
+
+  document.querySelectorAll(".cell img").forEach(img => {
+    img.onclick = () => {
+      $("#vimg").src = img.dataset.full;
+      $("#viewer").classList.add("on");
+    };
+    // 原图万一加载失败，自动回退到平台默认档地址
+    img.onerror = () => {
+      if (img.dataset.fallback && !img.dataset.fb) {
+        img.dataset.fb = "1";
+        img.src = "/api/img?u=" + encodeURIComponent(img.dataset.fallback);
+        $("#vimg").dataset.fullFb = img.dataset.fallback;
+      }
+    };
+    // 平台元数据里的尺寸不一定等于实际下发的像素——抖音分享页会把尺寸按原始的
+    // 1/1.5 上报（如 1440×2160，实际 2160×3240）。等图片真正加载完，用真实像素
+    // 覆盖尺寸标签，避免「看着像 1440 宽，其实已经是 2160 原图」的误判。
+    const showRealDim = () => {
+      if(!img.naturalWidth || !img.naturalHeight) return;
+      const cell = img.closest(".cell");
+      if(!cell) return;
+      let d = cell.querySelector(".dim");
+      if(!d){ d = document.createElement("span"); d.className = "dim"; cell.appendChild(d); }
+      d.textContent = img.naturalWidth + "×" + img.naturalHeight;
+    };
+    if(img.complete) showRealDim();
+    img.addEventListener("load", showRealDim);
+  });
+  $("#viewer").onclick = () => $("#viewer").classList.remove("on");
+
+  // 视频最高码率档万一播不了（个别机型/编码），自动降级到下一个码率档
+  document.querySelectorAll(".cell video").forEach(v => {
+    v.onerror = () => {
+      let arr = [];
+      try { arr = JSON.parse(v.dataset.backup || "[]"); } catch(e){}
+      if (!arr.length) return;
+      const nextUrl = arr.shift();
+      v.dataset.backup = JSON.stringify(arr);
+      const nsrc = "/api/video?u=" + encodeURIComponent(nextUrl) +
+                   "&name=" + encodeURIComponent(v.dataset.name || "media.mp4");
+      v.src = nsrc;
+      const a = v.parentElement && v.parentElement.querySelector(".pad a");
+      if (a) a.href = nsrc + "&dl=1";
+    };
+  });
+
+  const ca = $("#copyall");
+  if(ca) ca.onclick = () => {
+    const urls = d.items.filter(i => i.kind === "image")
+      .map(i => location.origin + "/api/img?u=" + enc(i.url)).join("\n");
+    navigator.clipboard.writeText(urls).then(
+      () => alert("已复制 " + d.items.length + " 条直链"),
+      () => alert("复制失败，请长按图片逐个保存")
+    );
+  };
+
+  // ── 勾选下载到 NAS 本地目录 ──
+  document.querySelectorAll(".cell .pick-cb").forEach(cb => {
+    cb.addEventListener("change", () => {
+      cb.closest(".pick").classList.toggle("on", cb.checked);
+    });
+  });
+  const pickAll = $("#pickAll");
+  if(pickAll) pickAll.addEventListener("change", () => {
+    document.querySelectorAll(".pick-cb").forEach(cb => {
+      cb.checked = pickAll.checked;
+      cb.closest(".pick").classList.toggle("on", cb.checked);
+    });
+  });
+  const dlNas = $("#dlNas");
+  if(dlNas) dlNas.onclick = () => downloadSelected(d);
+}
+
+async function downloadSelected(d){
+  const cbs = Array.from(document.querySelectorAll(".pick-cb")).filter(cb => cb.checked);
+  const stat = $("#dlStat");
+  if(!cbs.length){ if(stat) stat.textContent = "请先勾选要下载的条目"; return; }
+  // data-url 在渲染时已 encodeURIComponent，取出来要解码回原始链接再发后端，
+  // 否则后端 guard() 看到的是 https%3A%2F%2F...（无 //），会判成「非法的资源地址」。
+  const urls = cbs.map(cb => {
+    try { return decodeURIComponent(cb.dataset.url); } catch (e) { return cb.dataset.url; }
+  });
+  const kinds = cbs.map(cb => cb.dataset.kind);
+  const subdir = ($("#subdir") && $("#subdir").value.trim()) || (d.title ? safeName(d.title) : "") || (d.author ? safeName(d.author) : "");
+  if(stat) stat.innerHTML = "正在下载 <b>" + cbs.length + "</b> 个…";
+  const btn = $("#dlNas"); if(btn) btn.disabled = true;
+  try{
+    const res = await fetch(api("/api/download"), {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ urls, kinds, subdir })
+    });
+    const r = await res.json().catch(() => ({}));
+    if(!res.ok){ if(stat) stat.innerHTML = '<span class="fail">' + esc(r.error || "下载失败") + "</span>"; return; }
+    const fails = (r.results || []).filter(x => !x.ok);
+    let msg = "已保存 <b>" + r.saved + "/" + r.total + "</b> 个 → <b>" + esc(r.dir) + "</b>";
+    if(fails.length) msg += '；<span class="fail">' + fails.length + " 个失败：" +
+      fails.map(f => esc(f.error)).slice(0, 3).join(" / ") + "</span>";
+    if(stat) stat.innerHTML = msg;
+  }catch(e){
+    if(stat) stat.innerHTML = '<span class="fail">请求出错：' + esc(e.message) + "</span>";
+  }finally{
+    if(btn) btn.disabled = false;
+  }
+}
+
+function footNote(isVideo){
+  return '<div class="hint">' +
+    (isVideo
+      ? '<b>图片</b>：长按 → 存储到相册。<br><b>视频</b>：点「下载到「文件」App」，再在文件里打开视频 → 分享 → 存储到相册。'
+      : '<b>保存方式</b>：在图片上长按 → 存储到相册。点图片可放大查看，放大后同样支持长按保存。') +
+    '</div>';
+}
+
+/* 快捷指令 / 外部跳转：支持 ?url=<链接或整段分享文案> 打开即自动解析。
+   解析完把参数从地址栏抹掉，避免刷新时重复触发。 */
+(function(){
+  let sp;
+  try{ sp = new URLSearchParams(location.search); }catch(e){ sp = null; }
+  let q = (sp ? (sp.get("url") || sp.get("u") || sp.get("link") || "") : "").trim();
+  // 抖音分享文案带 # 话题标签，直接拼进 ?url= 会被浏览器当作 URL 片段(fragment)截断，
+  // 链接落到 location.hash 里、服务端收不到。这里把片段里的链接捞回来：
+  // 只要 ?url= 里抽不到链接、而 hash 里有 http(s) 链接，就用 hash 里的完整文案。
+  if(location.hash){
+    let h = location.hash.slice(1).trim();
+    try{ h = decodeURIComponent(h); }catch(e){}
+    if(/https?:\/\//.test(h) && !/https?:\/\//.test(q)) q = h;
+  }
+  // 兜底：快捷指令拼接出错时，分享文案/链接可能被塞进 path 而非 ?url=。
+  // 浏览器对 location.pathname 的解码行为不一致：Safari 可能保留 %3A%2F%2F，
+  // 所以同时检查原始 pathname 和 decodeURIComponent 后的结果。
+  if(!q){
+    try{
+      const raw = location.pathname.slice(1).trim();
+      let decoded = raw;
+      try{ decoded = decodeURIComponent(raw); }catch(e){}
+      // 无论浏览器 pathname 是 encoded 还是部分 decoded，都优先用完全解码后的结果，
+      // 这样输入框里显示的是人话，也不会把 https%3A%2F%2F 发给后端。
+      if(decoded && /https?:\/\//.test(decoded)) q = decoded;
+      else if(raw && /https?:\/\//.test(raw)) q = raw;
+    }catch(e){}
+  }
+  if(!q) return;
+  if(sp){ sp.delete("url"); sp.delete("u"); sp.delete("link"); }
+  $("#input").value = q;
+  const rest = sp ? sp.toString() : "";
+  try{ history.replaceState(null, "", location.pathname + (rest ? "?" + rest : "") + location.hash); }catch(e){}
+  parse(q);
+})();
+</script>
+</body>
+</html>

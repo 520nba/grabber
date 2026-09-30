@@ -1,0 +1,35 @@
+# 别把 Windows 产物 / 临时文件 / 本地配置打进镜像
+cloudflared
+cloudflared.log
+server.log
+server_err.log
+*.log
+__pycache__/
+*.pyc
+# ⚠️ 千万不要用 `_*` 这类「下划线开头」的通配符来排除草稿文件！
+#   不带斜杠的通配符是按 **basename** 匹配的，`_*` 会连 Python 的 dunder 文件
+#   （`__init__.py`）一起排掉 → parsers/ 退化成 PEP 420 命名空间包 → 容器启动即报：
+#     ImportError: cannot import name 'parse' from 'parsers' (unknown location)
+#   所以草稿/测试文件一律按名字显式列举，或命名为 `_scratch*` / `_tmp*`。
+_qr_test.py
+_scratch*
+_scratch/
+_tmp*
+*tmp.py
+.git/
+.venv/
+venv/
+# 持久化目录与本地配置由 volume 挂载，不进镜像
+data/
+config.json
+config.json.tmp
+.env
+# 打包产物
+dist/
+*.tar
+*.tar.gz
+# 本地脚本（容器里用不到）
+install.bat
+start.bat
+# 注意：Dockerfile / docker-compose*.yml 不要排除。
+# 用 tar 包作为构建上下文上传到 Portainer 时，构建器需要能读到 Dockerfile。

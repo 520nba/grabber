@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+httpx
+yt-dlp
+curl_cffi
+gmssl

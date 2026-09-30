@@ -1,0 +1,47 @@
+# 带「手机扫码登录」能力的镜像。
+#
+# 与 Dockerfile 的区别只有一处：把 INSTALL_BROWSER 的默认值设为 1。
+# 这样在 Portainer 里直接选这个 Dockerfile 构建即可，不必依赖构建参数输入框。
+# 代价：多装 Chromium 与系统依赖，镜像约 +500MB；扫码登录时才占用内存，
+# 登录结束浏览器即关闭，日常解析不碰它。
+#
+# 只想要轻量镜像（用粘贴 Cookie 的方式）就用 Dockerfile，别用这个。
+# 注意：两者内容需保持同步，改动 Dockerfile 时记得同步这里。
+
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    TZ=Asia/Shanghai \
+    PORT=8765
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates tzdata \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 依赖清单以 requirements.txt 为唯一真源（见 Dockerfile 里的说明）。
+COPY requirements.txt ./
+RUN (pip install -r requirements.txt \
+     || (echo "!! requirements.txt 整体安装失败（多为 curl_cffi 无 wheel），改为剔除它后重装" \
+         && grep -vi 'curl_cffi' requirements.txt > /tmp/req.core \
+         && pip install -r /tmp/req.core)) \
+ && echo ">>> 安装浏览器登录能力（Chromium + 系统依赖）" \
+ && pip install playwright \
+ && playwright install --with-deps chromium
+
+COPY . .
+
+# 构建期自检：dunder 文件极容易被 .dockerignore 的下划线通配符误伤
+# （曾用 `_*` 把 parsers/__init__.py 排掉 → parsers 退化成命名空间包，
+#  容器启动才报 `ImportError: cannot import name 'parse' from 'parsers'`）。
+RUN test -f parsers/__init__.py \
+ && python -c "import parsers; assert callable(getattr(parsers, 'parse', None)), 'parsers.parse 缺失'; print('>>> 构建自检通过：parsers 包完整')"
+
+EXPOSE 8765
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -fsS "http://127.0.0.1:${PORT}/api/health" || exit 1
+
+CMD ["python", "server.py"]

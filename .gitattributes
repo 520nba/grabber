@@ -1,0 +1,7 @@
+# 统一行尾：仓库内一律用 LF，避免 Windows 的 CRLF 混进 Dockerfile / 脚本，
+# 导致容器构建时 shell 续行符（\）后面跟着一个 CR 而报错。
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
+*.jpg binary
+*.gz binary

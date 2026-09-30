@@ -1,0 +1,38 @@
+# ─────────────────────────────────────────────────────────────
+# 本地配置：含登录 Cookie（xhs_cookie / douyin_cookie），**绝对不能提交**
+# ─────────────────────────────────────────────────────────────
+config.json
+grabber/config.json
+*.json.tmp
+.env
+data/
+
+# 日志（cloudflared.log 可达数 MB，且含隧道信息）
+*.log
+
+# 构建产物：用 `python grabber/build_context.py` 重新生成，不入库
+dist/
+
+# Agent 工作区笔记（含本地路径、内网 IP、私有域名等），不入库
+.workbuddy/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# 草稿 / 临时文件（与 .dockerignore 保持同一约定）
+grabber/_qr_test.py
+_scratch*
+_scratch/
+_tmp*
+*tmp.py
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
