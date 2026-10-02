@@ -81,13 +81,14 @@
     color:#fff;font-size:11px;cursor:pointer;user-select:none}
   .cell .pick input{width:16px;height:16px;margin:0;accent-color:var(--brand)}
   .cell .pick.on{background:var(--brand)}
-  .dl-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:14px}
-  .dl-bar label.chk{display:flex;align-items:center;gap:5px;font-size:13px;color:var(--sub);cursor:pointer}
+  .dl-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:14px 0 12px}
+  .dl-bar label.chk{flex:0 0 auto;display:flex;align-items:center;gap:5px;font-size:13px;color:var(--sub);cursor:pointer}
   .dl-bar label.chk input{width:16px;height:16px;accent-color:var(--brand)}
-  .dl-bar input.sub{flex:1 1 160px;min-width:120px;border:1px solid var(--line);border-radius:9px;
+  /* 前缀输入框独占一行（flex-basis:100%），保证「全选 + 下载」这一行在手机上不被挤到换行 */
+  .dl-bar input.sub{flex:1 1 100%;min-width:0;border:1px solid var(--line);border-radius:9px;
     padding:9px 11px;font-size:13.5px;background:#fff;color:var(--text)}
-  .dl-bar button.go{background:var(--brand);color:#fff;font-weight:600;font-size:14px;padding:10px 16px;
-    border-radius:9px;border:none;cursor:pointer}
+  .dl-bar button.go{flex:1 1 160px;background:var(--brand);color:#fff;font-weight:600;font-size:14px;padding:10px 16px;
+    border-radius:9px;border:none;cursor:pointer;white-space:nowrap}
   .dl-bar button.go:disabled{opacity:.55;cursor:default}
   .dl-bar .stat{flex-basis:100%;font-size:12.5px;color:var(--sub);line-height:1.5}
   .dl-bar .stat b{color:var(--brand)}
@@ -434,6 +435,15 @@ function render(d){
   if(d.title) html += '<div class="title">' + esc(d.title) + '</div>';
   if(d.author) html += '<div class="author">@' + esc(d.author) + '</div>';
 
+  // 勾选 + 下载到 NAS 本地目录。这一行放在图片**上方**：图多的时候不用一路滑到最后
+  // 才能点保存；下载结果 stat 也在上方，点完立刻能看到反馈。
+  html += '<div class="dl-bar">' +
+    '<label class="chk"><input type="checkbox" id="pickAll"> 全选</label>' +
+    '<button class="go" id="dlNas">下载选中到 NAS</button>' +
+    '<input class="sub" id="subdir" placeholder="标题前缀(可选，用于文件名)" value="">' +
+    '<span class="stat" id="dlStat"></span>' +
+    '</div>';
+
   html += '<div class="grid">';
     d.items.forEach(it => {
     const pick = '<label class="pick"><input type="checkbox" class="pick-cb" data-url="' + enc(it.url) +
@@ -455,14 +465,6 @@ function render(d){
     }
   });
   html += '</div>';
-
-  // 勾选 + 下载到 NAS 本地目录
-  html += '<div class="dl-bar">' +
-    '<label class="chk"><input type="checkbox" id="pickAll"> 全选</label>' +
-    '<input class="sub" id="subdir" placeholder="标题前缀(可选，用于文件名)" value="">' +
-    '<button class="go" id="dlNas">下载选中到 NAS</button>' +
-    '<span class="stat" id="dlStat"></span>' +
-    '</div>';
 
   if(!isVideo){
     html += '<div class="toolbar"><button id="copyall">复制全部图片链接</button></div>';
@@ -526,18 +528,33 @@ function render(d){
   };
 
   // ── 勾选下载到 NAS 本地目录 ──
-  document.querySelectorAll(".cell .pick-cb").forEach(cb => {
-    cb.addEventListener("change", () => {
-      cb.closest(".pick").classList.toggle("on", cb.checked);
-    });
-  });
+  // 勾选态和角标样式统一走 setPick，避免「单条默认勾选」和「全选」两处各写一份、状态漂移。
+  const setPick = (cb, on) => {
+    cb.checked = on;
+    const box = cb.closest(".pick");
+    if(box) box.classList.toggle("on", on);
+  };
   const pickAll = $("#pickAll");
-  if(pickAll) pickAll.addEventListener("change", () => {
-    document.querySelectorAll(".pick-cb").forEach(cb => {
-      cb.checked = pickAll.checked;
-      cb.closest(".pick").classList.toggle("on", cb.checked);
-    });
+  // 反向同步「全选」：取消掉个别勾选时，全选框不该还停留在勾上（部分勾选显示半选横线）。
+  const syncPickAll = () => {
+    if(!pickAll) return;
+    const cbs = Array.from(document.querySelectorAll(".pick-cb"));
+    const on = cbs.filter(cb => cb.checked).length;
+    pickAll.checked = cbs.length > 0 && on === cbs.length;
+    pickAll.indeterminate = on > 0 && on < cbs.length;
+  };
+  document.querySelectorAll(".cell .pick-cb").forEach(cb => {
+    cb.addEventListener("change", () => { setPick(cb, cb.checked); syncPickAll(); });
   });
+  if(pickAll) pickAll.addEventListener("change", () => {
+    document.querySelectorAll(".pick-cb").forEach(cb => setPick(cb, pickAll.checked));
+    syncPickAll();
+  });
+  // 只解析到一条（典型是小红书单图）时没有「选哪个」的余地：默认勾上，
+  // 省掉「先点『选』、再点『下载选中到 NAS』」这一下。
+  const allCbs = Array.from(document.querySelectorAll(".pick-cb"));
+  if(allCbs.length === 1) setPick(allCbs[0], true);
+  syncPickAll();
   const dlNas = $("#dlNas");
   if(dlNas) dlNas.onclick = () => downloadSelected(d);
 }
