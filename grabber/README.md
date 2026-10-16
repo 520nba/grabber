@@ -55,7 +55,7 @@ start.bat       # 启动服务，默认 http://0.0.0.0:8765
 **勾选**想要的图片/视频 → 点「下载选中到 NAS」，**服务端直接把文件写到 NAS 磁盘**，
 手机只发指令、不传大文件。
 
-- 落盘目录默认 **`/volume1/disk10/comfyui素材`**，**不再新建子目录**，所有图片/视频直接
+- 落盘目录默认 **`/volume1/disk10/comfyui/素材`**，**不再新建子目录**，所有图片/视频直接
   扁平落进该目录（方便 ComfyUI 直接批量读取，不用再进一层文件夹）。
 - 文件名 = **`标题 + 序号 + 扩展名`**（如 `佳能阴天的清透感01.jpg`、`佳能阴天的清透感02.mp4`）：
   标题取自「标题前缀」输入框，默认自动填入笔记标题；留空则只保留序号（`01.jpg` …）。
@@ -69,9 +69,9 @@ start.bat       # 启动服务，默认 http://0.0.0.0:8765
   `GRABBER_DOWNLOAD_DIR` 环境变量，直接重新部署即可，无需手动改：
   ```yaml
   volumes:
-    - /volume1/disk10/comfyui素材:/volume1/disk10/comfyui素材
+    - /volume1/disk10/comfyui/素材:/volume1/disk10/comfyui/素材
   environment:
-    - GRABBER_DOWNLOAD_DIR=/volume1/disk10/comfyui素材
+    - GRABBER_DOWNLOAD_DIR=/volume1/disk10/comfyui/素材
   ```
   （若你的 NAS 布局不同，把左侧宿主路径改成实际目录，并保持 `GRABBER_DOWNLOAD_DIR`
   等于容器内挂载点即可。）

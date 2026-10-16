@@ -35,8 +35,8 @@ services:
       # 下载落盘目录：把 NAS 上的 ComfyUI 素材目录挂进容器（用绝对路径的 bind mount，
       # 这样能指向已存在的宿主目录；Portainer 只对「相对路径」敏感，绝对路径没问题）。
       # 右侧（容器侧）路径 = 下面 GRABBER_DOWNLOAD_DIR 的值，两边必须一致。
-      # 若你的 NAS 布局不同，把左侧宿主路径改成实际目录即可（右侧保持 /volume1/disk10/comfyui素材）。
-      - /volume1/disk10/comfyui素材:/volume1/disk10/comfyui素材
+      # 若你的 NAS 布局不同，把左侧宿主路径改成实际目录即可（右侧保持 /volume1/disk10/comfyui/素材）。
+      - /volume1/disk10/comfyui/素材:/volume1/disk10/comfyui/素材
     environment:
       - TZ=Asia/Shanghai
       - PORT=8765
@@ -45,7 +45,7 @@ services:
       # Cookie 保活间隔（小时）。设 0 关闭保活。
       - COOKIE_KEEPALIVE_HOURS=6
       # 下载落盘目录（勾选图片/视频 → 下载到 NAS 用）。必须等于上面卷挂载的「容器侧」路径。
-      - GRABBER_DOWNLOAD_DIR=/volume1/disk10/comfyui素材
+      - GRABBER_DOWNLOAD_DIR=/volume1/disk10/comfyui/素材
       # 需要走代理时填
       # - PROXY=http://192.168.2.x:7890
     healthcheck:

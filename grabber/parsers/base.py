@@ -150,7 +150,7 @@ TIMEOUT: float = float(_config.get("timeout", 20))
 DOWNLOAD_DIR: str = (
     os.environ.get("GRABBER_DOWNLOAD_DIR")
     or _config.get("download_dir")
-    or "/volume1/disk10/comfyui素材"
+    or "/volume1/disk10/comfyui/素材"
 )
 # 运行时覆盖：/api/parse 可临时带入 cookie，优先于 config.json。
 # 用 ContextVar 而非模块全局——FastAPI 每个请求跑在自己独立的 asyncio task 上下文里，
@@ -172,7 +172,7 @@ def reload_config() -> None:
         DOWNLOAD_DIR = (
             os.environ.get("GRABBER_DOWNLOAD_DIR")
             or _config.get("download_dir")
-            or "/volume1/disk10/comfyui素材"
+            or "/volume1/disk10/comfyui/素材"
         )
 
 
