@@ -54,6 +54,25 @@
     border-radius:9px;padding:9px;font-size:14px;font-weight:600;text-decoration:none}
   .cell.wide{grid-column:1 / -1}
 
+  /* Cookie 状态条：放在折叠面板外面，收起面板也能一眼看到「有效 / 已失效」 */
+  .ckbar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:0 2px 10px;font-size:12.5px}
+  .ckbar .chip{display:inline-flex;align-items:center;gap:5px;background:var(--card);border:1px solid var(--line);
+    border-radius:999px;padding:4px 10px;color:var(--sub);box-shadow:var(--shadow)}
+  .ckbar .chip b{font-weight:600;color:var(--text)}
+  .ckbar .chip .dot{width:7px;height:7px;border-radius:50%;background:#c3c7ce;flex:0 0 auto}
+  .ckbar .chip.ok{border-color:#bfe6cf}
+  .ckbar .chip.ok .dot{background:#1a9c5b}
+  .ckbar .chip.ok b{color:#0a8f4d}
+  .ckbar .chip.bad{border-color:#ffd7dd;background:#fff4f5}
+  .ckbar .chip.bad .dot{background:#e5484d}
+  .ckbar .chip.bad b{color:#c02a44}
+  .ckbar .chip.warn .dot{background:#e0a400}
+  .ckbar .chip.warn b{color:#8a6412}
+  .ckbar .ckw{flex-basis:100%;color:var(--sub);font-size:11.5px}
+  .ckbar button.mini{margin-left:auto;flex:0 0 auto;background:#f1f2f4;color:var(--text);border:0;border-radius:999px;
+    padding:5px 12px;font-size:12.5px;font-weight:500;cursor:pointer}
+  .ckbar button.mini:disabled{opacity:.6}
+
   .hint{background:#fff;border:1px dashed var(--line);border-radius:var(--radius);padding:11px 13px;
     color:var(--sub);font-size:12.5px;line-height:1.6;margin:14px 0 0}
   .hint b{color:var(--text)}
@@ -100,6 +119,14 @@
   <h1>素材抓取</h1>
   <p>粘贴小红书 / 抖音分享链接，取原图与无水印视频</p>
 </header>
+
+<!-- Cookie 状态条：不用展开下面的折叠面板，也能一眼看到「有效 / 已失效」 -->
+<div class="ckbar" id="ckbar">
+  <span class="chip" id="chipXhs"><span class="dot"></span>小红书 <b>检测中</b></span>
+  <span class="chip" id="chipDy"><span class="dot"></span>抖音 <b>检测中</b></span>
+  <button class="mini" id="ckRecheck" type="button">重新校验</button>
+  <span class="ckw" id="ckWhen"></span>
+</div>
 
 <details class="panel" id="settings">
   <summary style="cursor:pointer;font-weight:600;font-size:14px;list-style:none;display:flex;align-items:center;gap:8px">
@@ -198,16 +225,146 @@ function pushHist(u){
 }
 loadHist();
 
-/* Cookie 设置 */
-async function refreshCfg(){
+/* ── Cookie 状态：有效 / 已失效 / 待校验 / 未填 ──
+   以前只在「登录态 Cookie」折叠面板里显示，面板一收起来就看不到；
+   现在页面顶部常驻一条状态栏，直接用 /api/cookie/status 判定：
+     · 小红书：后台能真的判定登录态（/explore 的 __INITIAL_STATE__.user.loggedIn）
+     · 抖音：签名拿不到登录态，后台无法可靠校验，只能看 Cookie 里有没有登录票据 */
+let CK_CFG = null;         // 最近一次 /api/config，只用来判断「填没填」
+let CK_BUSY = false;       // 是否正在校验
+let CK_AUTOCHECKED = false;
+
+function chipSet(el, cls, text, tip){
+  if(!el) return;
+  el.className = "chip" + (cls ? " " + cls : "");
+  const b = el.querySelector("b");
+  if(b) b.textContent = text;
+  el.title = tip || "";
+}
+
+function xhsState(st){
+  if(!st || !st.xhs_has_cookie)
+    return { cls:"", txt:"未填", tip:"还没填小红书 Cookie：图片免登录可用，视频最高 720p" };
+  if(st.ok === true)
+    return { cls:"ok", txt:"有效",
+             tip:"登录态有效" + (st.user_id ? "（ID " + st.user_id + "）" : "") +
+                 (st.checked_ago ? "，上次校验 " + st.checked_ago : "") };
+  if(st.ok === false)
+    return { cls:"bad", txt:"已失效", tip: st.message || "登录态已失效，请重新获取 Cookie" };
+  return { cls:"warn", txt:"待校验", tip: st.message || "还没有校验过" };
+}
+
+function dyState(st){
+  const cfg = CK_CFG;
+  if(!(cfg && cfg.douyin && cfg.douyin.set))
+    return { cls:"", txt:"未填", tip:"还没填抖音 Cookie：免登录也能解析，但风控更严、更容易失败" };
+  if(st && st.douyin_has_cookie)
+    return { cls:"", txt:"已填",
+             tip:"Cookie 里含登录票据（sessionid / sid_tt 等）。抖音登录态没法在后台可靠校验，以解析是否成功为准" };
+  return { cls:"warn", txt:"缺登录票据",
+           tip:"Cookie 里没有 sessionid / sessionid_ss / sid_tt / odin_tt 等登录字段，等于没登录——请重新复制登录后的完整 Cookie" };
+}
+
+/* 折叠面板里的详细行（自动续期次数、保活间隔等） */
+function renderCkDetail(st){
+  const box = $("#ckState");
+  if(!box) return;
+  if(!st){ box.textContent = ""; return; }
+  const bits = [];
+  if(st.ok === true)
+    bits.push('<span style="color:#0a8f4d">● 小红书登录态有效</span>' + (st.user_id ? "（ID " + esc(st.user_id) + "）" : ""));
+  else if(st.ok === false)
+    bits.push('<span style="color:#d33">● 小红书登录态已失效，需要重新获取 Cookie</span>');
+  else if(!st.xhs_has_cookie)
+    bits.push('<span style="color:var(--sub)">● 未填小红书 Cookie（图片免登录可用；视频网页端最高 1080p）</span>');
+  else
+    bits.push('<span style="color:var(--sub)">● 待校验</span>');
+  if(st.checked_ago) bits.push("上次校验：" + esc(st.checked_ago));
+  const rn = st.renew || {};
+  if(rn.times){
+    let t = "已自动续期 " + rn.times + " 次";
+    if(rn.last_ago) t += "（最近 " + esc(rn.last_ago) + "）";
+    if(rn.keys && rn.keys.length) t += "：" + esc(rn.keys.slice(0, 6).join("、"));
+    bits.push(t);
+  }
+  if(st.keepalive_hours > 0) bits.push("保活间隔 " + st.keepalive_hours + " 小时");
+  box.innerHTML = bits.join("　·　");
+}
+
+function renderCookieStatus(st, cfg){
+  if(cfg) CK_CFG = cfg;
+  const xs = xhsState(st), ds = dyState(st);
+  chipSet($("#chipXhs"), xs.cls, xs.txt, xs.tip);
+  chipSet($("#chipDy"), ds.cls, ds.txt, ds.tip);
+  const when = $("#ckWhen");
+  if(when) when.textContent = (st && st.checked_ago) ? "上次校验 " + st.checked_ago : "";
+  renderCkDetail(st);
+}
+
+async function refreshCookieStatus(cfg){
   try{
-    const r = await fetch("/api/config"); const d = await r.json();
-    const dz = d.douyin && d.douyin.set, xz = d.xhs && d.xhs.set;
-    let s = "抖音:" + (dz ? "已填(" + d.douyin.len + "字符)" : "未填") +
-            " · 小红书:" + (xz ? "已填" : "未填");
-    $("#cfgDot").textContent = s;
-  }catch(e){ $("#cfgDot").textContent = "状态未知"; }
-  refreshCookieState();
+    const st = await (await fetch("/api/cookie/status")).json();
+    renderCookieStatus(st, cfg);
+    return st;
+  }catch(e){
+    if(cfg) CK_CFG = cfg;
+    chipSet($("#chipXhs"), "", "状态未知", "读取 Cookie 状态失败：" + e.message);
+    chipSet($("#chipDy"), "", "状态未知", "读取 Cookie 状态失败：" + e.message);
+    return null;
+  }
+}
+
+async function refreshCfg(){
+  let cfg = null;
+  try{ cfg = await (await fetch("/api/config")).json(); }catch(e){}
+  const dot = $("#cfgDot");
+  if(cfg){
+    CK_CFG = cfg;
+    // 面板标题只保留「填了多少字符」，有效性统一交给上面的状态条，避免两处重复
+    const dy = cfg.douyin || {}, xh = cfg.xhs || {};
+    if(dot) dot.textContent = "抖音 " + (dy.set ? dy.len + " 字符" : "未填") +
+                              " · 小红书 " + (xh.set ? xh.len + " 字符" : "未填");
+  }else if(dot && dot.textContent === "检测中…"){
+    dot.textContent = "状态未知";
+  }
+  const st = await refreshCookieStatus(cfg);
+  maybeAutoCheck(st);
+}
+
+/* 服务端状态是内存态（容器重启即清零），而保活间隔可能很长：
+   没有校验记录、或记录已超过保活间隔时，打开页面自动补一次校验，
+   免得状态条一直停在「待校验」。每次打开最多自动触发一次。 */
+function cookieStale(st){
+  if(!st || !st.xhs_has_cookie) return false;
+  if(!st.checked_at) return true;
+  const ttl = (st.keepalive_hours > 0 ? st.keepalive_hours : 6) * 3600;
+  return (Date.now() / 1000 - st.checked_at) > ttl;
+}
+
+async function checkNow(opts){
+  if(CK_BUSY) return;
+  CK_BUSY = true;
+  const barBtn = $("#ckRecheck"), panelBtn = $("#ckCheck"), msg = $("#ckMsg");
+  if(barBtn){ barBtn.disabled = true; barBtn.textContent = "校验中…"; }
+  if(panelBtn) panelBtn.disabled = true;
+  if(msg && !(opts && opts.quiet)) msg.textContent = "正在校验…";
+  try{
+    const d = await (await fetch("/api/cookie/check", { method:"POST" })).json();
+    renderCookieStatus(d);
+    if(msg) msg.textContent = (d.ok === true ? "✅ " : d.ok === false ? "❌ " : "ℹ️ ") + (d.message || "");
+  }catch(e){
+    if(msg) msg.textContent = "❌ 校验失败：" + e.message;
+  }finally{
+    CK_BUSY = false;
+    if(barBtn){ barBtn.disabled = false; barBtn.textContent = "重新校验"; }
+    if(panelBtn) panelBtn.disabled = false;
+  }
+}
+
+async function maybeAutoCheck(st){
+  if(CK_AUTOCHECKED || !cookieStale(st)) return;
+  CK_AUTOCHECKED = true;
+  await checkNow({ quiet:true });
 }
 
 /* 预填两个 Cookie 框：明文只对同源浏览器请求下发（见后端 /api/config）。
@@ -222,45 +379,10 @@ async function fillCookieBoxes(force){
   }catch(e){}
 }
 
-/* Cookie 健康状态：有效 / 已失效 / 待校验 + 自动续期情况 */
-async function refreshCookieState(){
-  const box = $("#ckState");
-  if(!box) return;
-  try{
-    const r = await fetch("/api/cookie/status"); const d = await r.json();
-    const bits = [];
-    if(d.ok === true){
-      bits.push('<span style="color:#0a8f4d">● 登录态有效</span>' + (d.user_id ? "（ID " + esc(d.user_id) + "）" : ""));
-    }else if(d.ok === false){
-      bits.push('<span style="color:#d33">● 登录态已失效，需要重新获取 Cookie</span>');
-    }else if(!d.xhs_has_cookie){
-      bits.push('<span style="color:var(--sub)">● 未填小红书 Cookie（图片免登录可用；视频网页端最高 1080p）</span>');
-    }else{
-      bits.push('<span style="color:var(--sub)">● 待校验</span>');
-    }
-    if(d.checked_ago) bits.push("上次校验：" + esc(d.checked_ago));
-    const rn = d.renew || {};
-    if(rn.times){
-      let t = "已自动续期 " + rn.times + " 次";
-      if(rn.last_ago) t += "（最近 " + esc(rn.last_ago) + "）";
-      if(rn.keys && rn.keys.length) t += "：" + esc(rn.keys.slice(0, 6).join("、"));
-      bits.push(t);
-    }
-    if(d.keepalive_hours > 0) bits.push("保活间隔 " + d.keepalive_hours + " 小时");
-    box.innerHTML = bits.join("　·　");
-  }catch(e){ box.textContent = ""; }
-}
-$("#ckCheck").onclick = async () => {
-  $("#ckCheck").disabled = true;
-  $("#ckMsg").textContent = "正在校验…";
-  try{
-    const r = await fetch("/api/cookie/check", { method:"POST" });
-    const d = await r.json();
-    $("#ckMsg").textContent = (d.ok === true ? "✅ " : d.ok === false ? "❌ " : "ℹ️ ") + (d.message || "");
-    refreshCookieState(); refreshCfg();
-  }catch(e){ $("#ckMsg").textContent = "❌ 校验失败：" + e.message; }
-  finally{ $("#ckCheck").disabled = false; }
-};
+/* 「立即校验」和顶部状态条的「重新校验」走同一段逻辑（checkNow） */
+$("#ckCheck").onclick = () => checkNow();
+$("#ckRecheck").onclick = () => checkNow();
+
 $("#ckSave").onclick = async () => {
   // 只提交「确实填了内容」的框：空框代表「不修改该项」，这样只改一个平台时
   // 不会把另一个平台的 Cookie 一并清掉（后端也按同样语义处理）。
