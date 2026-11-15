@@ -571,13 +571,20 @@ function render(d){
     const pick = '<label class="pick"><input type="checkbox" class="pick-cb" data-url="' + enc(it.url) +
                  '" data-kind="' + esc(it.kind) + '"><span>选</span></label>';
     if(it.kind === "image"){
-      const src = "/api/img?u=" + enc(it.url);
+      // 优先让浏览器**直连图床 CDN**：图片不再经过本站的 Cloudflare 隧道。
+      // 隧道一抖动（实测会整批 http2 stream closed / 530），经代理的图片就会变成
+      // 空白格子，用户看到的就是「图片显示不全」；直连还快得多（整页 4s vs 16s）。
+      // 直连失败再逐级回退：本站代理 → 平台默认档。每级只试一次，避免死循环。
+      const prox = "/api/img?u=" + enc(it.url);
+      const steps = [it.url, prox];
+      if(it.fallback) steps.push("/api/img?u=" + enc(it.fallback));
       const dim = (it.width && it.height) ? '<span class="dim">' + it.width + '×' + it.height + '</span>' : "";
       const ori = it.tier === "original";
       const badgeText = it.badge || (ori ? "原图" : "默认档");
       const badge = '<span class="badge ' + (ori ? "ori" : "def") + '">' + esc(badgeText) + '</span>';
-      const fb = it.fallback ? (' data-fallback="' + enc(it.fallback) + '"') : "";
-      html += '<div class="cell">' + badge + pick + '<img src="' + src + '"' + fb + ' loading="lazy" data-full="' + src + '" alt="">' + dim + '</div>';
+      html += '<div class="cell">' + badge + pick +
+              '<img src="' + esc(it.url) + '" data-steps="' + esc(JSON.stringify(steps)) + '" data-step="0"' +
+              ' referrerpolicy="no-referrer" loading="lazy" alt="">' + dim + '</div>';
     }else{
       const src = "/api/video?u=" + enc(it.url) + "&name=" + enc(name);
       const poster = it.cover ? ('poster="/api/img?u=' + enc(it.cover) + '"') : "";
@@ -596,15 +603,33 @@ function render(d){
 
   document.querySelectorAll(".cell img").forEach(img => {
     img.onclick = () => {
-      $("#vimg").src = img.dataset.full;
+      $("#vimg").src = img.currentSrc || img.src;
       $("#viewer").classList.add("on");
     };
-    // 原图万一加载失败，自动回退到平台默认档地址
     img.onerror = () => {
-      if (img.dataset.fallback && !img.dataset.fb) {
-        img.dataset.fb = "1";
-        img.src = "/api/img?u=" + encodeURIComponent(img.dataset.fallback);
-        $("#vimg").dataset.fullFb = img.dataset.fallback;
+      // 直连 CDN → 本站代理 → 平台默认档，逐级回退；全失败后给一个「点我重试」
+      let steps = [];
+      try { steps = JSON.parse(img.dataset.steps || "[]"); } catch(e){}
+      let i = parseInt(img.dataset.step || "0", 10) + 1;
+      while (i < steps.length && !steps[i]) i++;
+      if (i < steps.length) {
+        img.dataset.step = String(i);
+        img.src = steps[i];
+        return;
+      }
+      img.dataset.failed = "1";
+      const cell = img.closest(".cell");
+      if (cell && !cell.querySelector(".imgerr")) {
+        const t = document.createElement("span");
+        t.className = "dim imgerr";
+        t.textContent = "加载失败 · 点我重试";
+        t.onclick = (ev) => {
+          ev.stopPropagation();
+          img.dataset.step = "0";
+          img.src = steps[0] || img.src;
+          t.remove();
+        };
+        cell.appendChild(t);
       }
     };
     // 平台元数据里的尺寸不一定等于实际下发的像素——抖音分享页会把尺寸按原始的
