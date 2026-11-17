@@ -515,9 +515,11 @@ async def api_video(u: str, request: Request, name: str = "media.mp4", dl: int =
         if k in r.headers:
             out_headers[k] = r.headers[k]
     if dl:
-        # 文件名必须先清理 + 百分号编码：HTTP 头只能 latin-1，直接塞中文会
-        # 让 Starlette 抛 UnicodeEncodeError，表现为 dl=1 直接 500（视频"无法下载"）。
-        clean = name.replace("\r", "").replace("\n", "").replace('"', "'").strip() or "media.mp4"
+        # 文件名先消毒再百分号编码：HTTP 头只能 latin-1，直接塞中文会让
+        # Starlette 抛 UnicodeEncodeError（表现为 dl=1 直接 500）；而标题里的
+        # "..." 会变成 ".." 文件名 —— ComfyUI /view 对含 ".." 的名字一律 400，
+        # 存进素材库后所有预览节点都打不开（见 safe_file_stem）。
+        clean = safe_download_name(name)
         out_headers["Content-Disposition"] = (
             "attachment; filename=\"media.mp4\"; "
             f"filename*=UTF-8''{quote(clean)}"
@@ -552,6 +554,51 @@ def _ext_for(url: str, kind: str) -> str:
             return ".mp4"
         return "." + e
     return ".mp4" if kind == "video" else ".jpg"
+
+
+# ── 文件名消毒 ────────────────────────────────────────────────────────────
+# 为什么必须做：ComfyUI 的 /view 对**任何**含 ".." 的文件名一律 400（它把子串当
+# 路径穿越拦掉）。素材库里一旦出现「天呐...太好看了.mp4」这种名字，文件本身没问题，
+# 但所有预览节点（Load Image、AusBoss 裁剪、视频节点…）都打不开它 —— 实测踩过：
+# input 里 61 个名字带 "..." 的图/视频，全部预览空白。所以落进 NAS 的每个名字都
+# 在**这一处**统一消毒，而不是各调用点各写一份正则。
+#
+# 规则：
+#   * 2 个以上连续的点折叠成 "_"（"a...b" → "a_b"），正常的单点扩展名不受影响；
+#   * 去掉首尾的点/下划线/空格（Windows 不接受尾点，首点会被当成隐藏文件）；
+#   * Windows 非法字符与控制字符换成 "_"；
+#   * Windows 设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9）前缀加 "_"；
+#   * 截断之后再消毒一遍，保证"截断"这一步不会又把边界拼成非法名字。
+_DOT_RUN = re.compile(r"\.{2,}")
+_FORBIDDEN = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL",
+     *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+)
+
+
+def safe_file_stem(text: str, limit: int = 40) -> str:
+    """把任意标题/前缀变成可安全落盘的文件名主干（可能返回空串，调用方兜底）。"""
+    value = _FORBIDDEN.sub("_", str(text or ""))
+    value = _DOT_RUN.sub("_", value).strip(" ._")[:limit]
+    value = _DOT_RUN.sub("_", value).replace("..", "_").strip(" ._")
+    if value.upper() in _RESERVED_NAMES:
+        value = "_" + value
+    return value
+
+
+def safe_download_name(name: str, default: str = "media.mp4") -> str:
+    """把浏览器传来的「标题 + 扩展名」消毒成可落盘/可保存的文件名。
+
+    手机端「下载到文件 App」和"下载选中到 NAS"都会把标题带进文件名，标题里的
+    "..." 正是本轮预览故障的来源；扩展名只保留字母数字，避免从标题里捡到怪后缀。
+    """
+    stem, extension = os.path.splitext(str(name or "").strip())
+    extension = re.sub(r"[^0-9A-Za-z]", "", extension.lstrip(".")).lower()
+    stem = safe_file_stem(stem, 80)
+    if not stem:
+        return default
+    return f"{stem}.{extension}" if extension else stem
 
 
 def _unique_dest(target_dir: str, fname: str) -> tuple[str, str]:
@@ -603,8 +650,10 @@ async def api_download(request: Request):
     # subdir 字段在此复用为「文件名标题前缀」：用户要求不新建子目录，
     # 所有图片/视频直接落进 DOWNLOAD_DIR，文件名 = 标题 + 序号。
     title = (str(body.get("subdir") or "")).strip()
-    # 文件名前缀消毒：去掉路径分隔与 Windows 非法字符，避免写出怪异/穿越文件名。
-    title = re.sub(r'[\/\\:*?"<>|]', "_", title).strip("._ ").replace("..", "_")[:40]
+    # 文件名前缀消毒：连续的点折叠成 "_"（"a...b" → "a_b"），首尾点/下划线/空格去掉。
+    # 必须保证落盘名字里没有 ".."：ComfyUI 的 /view 把含 ".." 的文件名当路径穿越，一律 400，
+    # 这种文件进了素材库/ComfyUI input 之后，所有预览节点都显示不出来。详见 safe_file_stem。
+    title = safe_file_stem(title, 40)
     target_dir = DOWNLOAD_DIR
     try:
         os.makedirs(target_dir, exist_ok=True)

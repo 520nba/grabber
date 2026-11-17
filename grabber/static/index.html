@@ -537,6 +537,9 @@ function esc(s){ return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&"
 
 function safeName(s){
   s = String(s || "作品").replace(/[\/\\:*?"<>|\n\r\t]/g, "").trim();
+  // 连续的点折叠成下划线：含 ".." 的文件名会被 ComfyUI 的 /view 判成路径穿越（400），
+  // 存进素材库后所有预览节点都打不开 —— 标题里带 "..." 就会踩到。首尾的点/下划线也去掉。
+  s = s.replace(/\.{2,}/g, "_").replace(/^[._\s]+|[._\s]+$/g, "");
   // 按「码点」截断，避免把 emoji 的代理对切成半个字符（会让 encodeURIComponent 抛 URI malformed）
   const t = Array.from(s).slice(0, 24).join("").trim();
   return t || "作品";

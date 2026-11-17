@@ -69,9 +69,14 @@ async def _install_async(transport):
 
     必须在循环内做：get_*_client 会检查客户端是否属于当前 loop；循环外取到时
     loop 为 None，进循环后会被判成「换了 loop」而重建，transport 就白装了。
+
+    另外要清 `_mounts`：httpx 0.28 在 trust_env 下会把**环境里的代理**自动挂成
+    mounts，而 mounts 的优先级高于 `_transport` —— 本机有 HTTP(S)_PROXY 时，
+    只赋值 `_transport` 的旧写法会静默真发请求（表现为「源返回 403」）。
     """
-    server.get_http_client()._transport = transport
-    server.get_stream_client()._transport = transport
+    for client in (server.get_http_client(), server.get_stream_client()):
+        client._mounts.clear()
+        client._transport = transport
 
 
 def install(transport):
