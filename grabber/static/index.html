@@ -139,6 +139,8 @@
     <b style="color:var(--text)">免登录即可拿到真原图</b>（如 3024×4032）。<br>
     <b style="color:var(--text)">小红书 Cookie 主要影响视频画质</b>：未登录只下发 720p 一档，
     填了才可能取到 1080p（网页端上限；更高的「原画」只在 App 内提供）。<br>
+    两个平台的登录态都会在后台真实校验：小红书看 <code>/explore</code> 的 <code>loggedIn</code>，
+    抖音看官方 <code>user/profile/self</code> 接口的 <code>status_code</code>（免签名）。<br>
     填一次就行——服务会自动接住平台滚动下发的新 Cookie 并定时保活，只有被登出时才需重填。
     Cookie 只存在你本机，不上传任何服务器。怎么拿见下方折叠说明。
   </p>
@@ -229,7 +231,8 @@ loadHist();
    以前只在「登录态 Cookie」折叠面板里显示，面板一收起来就看不到；
    现在页面顶部常驻一条状态栏，直接用 /api/cookie/status 判定：
      · 小红书：后台能真的判定登录态（/explore 的 __INITIAL_STATE__.user.loggedIn）
-     · 抖音：签名拿不到登录态，后台无法可靠校验，只能看 Cookie 里有没有登录票据 */
+     · 抖音：同样能真的判定（/aweme/v1/web/user/profile/self/ 免签名，
+       status_code 0=已登录、8=用户未登录），不再只看「有没有登录票据」 */
 let CK_CFG = null;         // 最近一次 /api/config，只用来判断「填没填」
 let CK_BUSY = false;       // 是否正在校验
 let CK_AUTOCHECKED = false;
@@ -258,14 +261,25 @@ function dyState(st){
   const cfg = CK_CFG;
   if(!(cfg && cfg.douyin && cfg.douyin.set))
     return { cls:"", txt:"未填", tip:"还没填抖音 Cookie：免登录也能解析，但风控更严、更容易失败" };
-  if(st && st.douyin_has_cookie)
-    return { cls:"", txt:"已填",
-             tip:"Cookie 里含登录票据（sessionid / sid_tt 等）。抖音登录态没法在后台可靠校验，以解析是否成功为准" };
-  return { cls:"warn", txt:"缺登录票据",
-           tip:"Cookie 里没有 sessionid / sessionid_ss / sid_tt / odin_tt 等登录字段，等于没登录——请重新复制登录后的完整 Cookie" };
+  // 有登录票据才谈得上「已登录 / 已失效」；没有票据时后台探测会直接返回未登录，
+  // 这里按「缺登录票据」提示，引导用户复制完整 Cookie。
+  if(!(st && st.douyin_has_cookie))
+    return { cls:"warn", txt:"缺登录票据",
+             tip:"Cookie 里没有 sessionid / sessionid_ss / sid_tt / odin_tt 等登录字段，等于没登录——请重新复制登录后的完整 Cookie" };
+  if(!st || st.douyin_ok === undefined)
+    return { cls:"warn", txt:"待校验", tip: st && st.douyin_message ? st.douyin_message : "还没有校验过" };
+  if(st.douyin_ok === true || st.douyin_logged_in === true)
+    return { cls:"ok", txt:"有效",
+             tip:"登录态有效" +
+                 (st.douyin_nickname ? "（" + st.douyin_nickname + "）" : "") +
+                 (st.douyin_user_id ? "（ID " + st.douyin_user_id + "）" : "") +
+                 (st.douyin_checked_ago ? "，上次校验 " + st.douyin_checked_ago : "") };
+  if(st.douyin_ok === false)
+    return { cls:"bad", txt:"已失效", tip: st.douyin_message || "登录态已失效，请重新获取 Cookie" };
+  return { cls:"warn", txt:"待校验", tip: st.douyin_message || "还没有校验过" };
 }
 
-/* 折叠面板里的详细行（自动续期次数、保活间隔等） */
+/* 折叠面板里的详细行（两平台登录态、自动续期次数、保活间隔等） */
 function renderCkDetail(st){
   const box = $("#ckState");
   if(!box) return;
@@ -278,8 +292,21 @@ function renderCkDetail(st){
   else if(!st.xhs_has_cookie)
     bits.push('<span style="color:var(--sub)">● 未填小红书 Cookie（图片免登录可用；视频网页端最高 1080p）</span>');
   else
-    bits.push('<span style="color:var(--sub)">● 待校验</span>');
-  if(st.checked_ago) bits.push("上次校验：" + esc(st.checked_ago));
+    bits.push('<span style="color:var(--sub)">● 小红书待校验</span>');
+  if(st.checked_ago) bits.push("小红书上次校验：" + esc(st.checked_ago));
+
+  if(st.douyin_ok === true)
+    bits.push('<span style="color:#0a8f4d">● 抖音登录态有效</span>' +
+              (st.douyin_nickname ? "（" + esc(st.douyin_nickname) + "）" : "") +
+              (st.douyin_user_id ? "（ID " + esc(st.douyin_user_id) + "）" : ""));
+  else if(st.douyin_ok === false)
+    bits.push('<span style="color:#d33">● 抖音登录态已失效，需要重新获取 Cookie</span>');
+  else if(!st.douyin_has_cookie)
+    bits.push('<span style="color:var(--sub)">● 未填抖音 Cookie（免登录也能解析，但风控更严）</span>');
+  else
+    bits.push('<span style="color:var(--sub)">● 抖音待校验</span>');
+  if(st.douyin_checked_ago) bits.push("抖音上次校验：" + esc(st.douyin_checked_ago));
+
   const rn = st.renew || {};
   if(rn.times){
     let t = "已自动续期 " + rn.times + " 次";
@@ -297,7 +324,9 @@ function renderCookieStatus(st, cfg){
   chipSet($("#chipXhs"), xs.cls, xs.txt, xs.tip);
   chipSet($("#chipDy"), ds.cls, ds.txt, ds.tip);
   const when = $("#ckWhen");
-  if(when) when.textContent = (st && st.checked_ago) ? "上次校验 " + st.checked_ago : "";
+  // 两个平台校验时间可能不同（例如只重存了抖音），显示较新的那个
+  const agoTxt = (st && (st.checked_ago || st.douyin_checked_ago)) || "";
+  if(when) when.textContent = agoTxt ? "上次校验 " + agoTxt : "";
   renderCkDetail(st);
 }
 
@@ -335,10 +364,11 @@ async function refreshCfg(){
    没有校验记录、或记录已超过保活间隔时，打开页面自动补一次校验，
    免得状态条一直停在「待校验」。每次打开最多自动触发一次。 */
 function cookieStale(st){
-  if(!st || !st.xhs_has_cookie) return false;
-  if(!st.checked_at) return true;
+  if(!st) return false;
   const ttl = (st.keepalive_hours > 0 ? st.keepalive_hours : 6) * 3600;
-  return (Date.now() / 1000 - st.checked_at) > ttl;
+  const now = Date.now() / 1000;
+  const stale = (has, at) => !!has && (!at || (now - at) > ttl);
+  return stale(st.xhs_has_cookie, st.checked_at) || stale(st.douyin_has_cookie, st.douyin_checked_at);
 }
 
 async function checkNow(opts){
@@ -351,7 +381,10 @@ async function checkNow(opts){
   try{
     const d = await (await fetch("/api/cookie/check", { method:"POST" })).json();
     renderCookieStatus(d);
-    if(msg) msg.textContent = (d.ok === true ? "✅ " : d.ok === false ? "❌ " : "ℹ️ ") + (d.message || "");
+    if(msg){
+      const line = (ok, who, text) => (ok === true ? "✅ " : ok === false ? "❌ " : "ℹ️ ") + who + "：" + (text || "");
+      msg.textContent = [line(d.ok, "小红书", d.message), line(d.douyin_ok, "抖音", d.douyin_message)].join("　");
+    }
   }catch(e){
     if(msg) msg.textContent = "❌ 校验失败：" + e.message;
   }finally{
@@ -398,9 +431,20 @@ $("#ckSave").onclick = async () => {
     if(!r.ok) throw new Error(d.error || "保存失败");
     const cs = d.cookie_status;
     let msg = "✅ 已保存并即时生效。";
-    if(cs && cs.ok === true) msg += " 登录态验证通过" + (cs.user_id ? "（ID " + cs.user_id + "）" : "") + "。";
-    else if(cs && cs.ok === false) msg += " ⚠️ 但这个 Cookie 平台不认：" + cs.message;
-    else if(cs) msg += " " + cs.message;
+    if(cs){
+      if(xv){
+        if(cs.ok === true) msg += " 小红书登录态验证通过" + (cs.user_id ? "（ID " + cs.user_id + "）" : "") + "。";
+        else if(cs.ok === false) msg += " ⚠️ 小红书这个 Cookie 平台不认：" + cs.message;
+        else if(cs.message) msg += " " + cs.message;
+      }
+      if(dv){
+        if(cs.douyin_ok === true) msg += " 抖音登录态验证通过" +
+          (cs.douyin_nickname ? "（" + cs.douyin_nickname + "）" : "") +
+          (cs.douyin_user_id ? "（ID " + cs.douyin_user_id + "）" : "") + "。";
+        else if(cs.douyin_ok === false) msg += " ⚠️ 抖音这个 Cookie 平台不认：" + cs.douyin_message;
+        else if(cs.douyin_message) msg += " " + cs.douyin_message;
+      }
+    }
     $("#ckMsg").textContent = msg;
     refreshCfg();
   }catch(e){ $("#ckMsg").textContent = "❌ " + e.message; }

@@ -167,8 +167,13 @@ start.bat       # 启动服务，默认 http://0.0.0.0:8765
 1. 打开页面，展开顶部的「⚙️ 登录态 Cookie」面板
 2. 电脑 Chrome 登录 www.douyin.com（抖音）/ www.xiaohongshu.com（小红书）
 3. F12 → Network → 任选一个请求 → Request Headers → 复制 `Cookie` 整行
-4. 粘到对应输入框，点「保存并生效」——保存后会自动校验一次登录态（**只有小红书**能免签名判定，
-   抖音没有对等手段），当场告诉你这个 Cookie 平台认不认
+4. 粘到对应输入框，点「保存并生效」——保存后会自动校验**两个平台**的登录态，
+   当场告诉你这个 Cookie 平台认不认：
+   - 小红书：读 `/explore` 页面里的 `__INITIAL_STATE__.user.loggedIn`
+   - 抖音：调官方 `/aweme/v1/web/user/profile/self/`（带 `device_platform=webapp&aid=6383&channel=channel_pc_web`，
+     **不需要 a_bogus 签名**）：`status_code=0` + `user.uid` = 已登录，
+     `status_code=8 / status_msg=用户未登录` = 未登录。被验证墙挡成 HTML 时判「暂时无法确认」，
+     不会误报失效。
 
 **两个框相互独立**：打开面板会自动预填当前**已保存**的值（明文仅对同源浏览器请求下发），
 所以**只改其中一个再保存，不会把另一个清空**；某个框留空即表示「不修改该项」。
@@ -187,7 +192,12 @@ start.bat       # 启动服务，默认 http://0.0.0.0:8765
 | 会话长期不活动被回收 | 后台每 6 小时用当前 Cookie 打一次轻量页面保活 |
 | 被登出 / 改密 / 异地登录 | 探测到就立刻在面板标红，并在解析结果里直接说清楚 |
 
-面板上的状态行会显示：**登录态是否有效 / 上次校验时间 / 已自动续期多少次**。
+面板上的状态行会显示：**两个平台各自的登录态、上次校验时间、已自动续期多少次**。
+页面顶部常驻状态条（不用展开面板）里两个平台各自显示「有效 / 已失效 / 待校验 / 未填」，
+抖音填了 Cookie 但没有 `sessionid/sid_tt` 之类票据时会显示「缺登录票据」。
+`/api/cookie/status` 的抖音字段是独立一组：`douyin_ok` / `douyin_logged_in` /
+`douyin_user_id` / `douyin_nickname` / `douyin_message` / `douyin_checked_at`，
+不会和小红书那组（`ok` / `logged_in` / `user_id` / `message`）互相覆盖。
 
 **关于「自动读浏览器 Cookie」**：这条路在新版浏览器上已经走不通了。
 Chrome 127+ 与新版 Edge 对 Cookie 库启用了 App-Bound 加密（实测本机 Edge 全部

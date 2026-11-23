@@ -375,13 +375,12 @@ async def post_config(request: Request):
         save_config(patch)
     except Exception as e:
         return JSONResponse({"error": f"保存失败：{e}"}, status_code=500)
-    # 只有保存小红书 Cookie 时才复核登录态：cookie_guard 唯一「无需签名就能判定登录」
-    # 的探针是小红书（读 explore 页的 loggedIn），抖音没有对等手段。
-    # 旧逻辑只要碰到任一 Cookie 字段就跑一遍 XHS 探测，于是「只存抖音 Cookie」时也会
-    # 拿小红书的状态来回话（例如报「未填小红书 Cookie」），把保存结果说拧了。
-    # 未填小红书票据时 check_xhs 直接返回、不发网络请求，所以不会拖慢保存。
+    # 存了任一平台的 Cookie 就复核两个平台的登录态（两个探针都不需要签名）：
+    #   · 小红书：/explore 页面里的 __INITIAL_STATE__.user.loggedIn
+    #   · 抖音：/aweme/v1/web/user/profile/self/ 的 status_code（0=已登录，8=未登录）
+    # 未填票据时对应 check_* 直接返回、不发网络请求，所以不会拖慢保存。
     checked = False
-    if "xhs_cookie" in patch:
+    if "xhs_cookie" in patch or "douyin_cookie" in patch:
         try:
             await cookie_guard.check_all()
             checked = True
